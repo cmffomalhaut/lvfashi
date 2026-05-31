@@ -1,0 +1,12 @@
+Execute the approved MVU battle ralplan handoff without replanning.
+Source artifacts:
+- .omx/plans/ralplan-handoff-mvu-battle.md
+- .omx/plans/ralplan-detailed-implementation-plan-mvu-battle.md
+- .omx/plans/critic-review-mvu-battle.md
+- .omx/plans/architect-review-substitute-mvu-battle.md
+Execution constraints:
+1. Do Phase-0 blocking deliverables first.
+2. First priority: canonical root schema including clearable battle_session.
+3. Establish a single state-access full-write owner for stat_data.
+4. Add retention and multi-writer safety verification before any battle UI implementation.
+5. Do not replan; implement from the handoff.

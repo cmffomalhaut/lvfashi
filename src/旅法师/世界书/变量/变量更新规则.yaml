@@ -1,0 +1,136 @@
+---
+变量更新规则:
+  世界:
+    当前时间:
+      check:
+        - 仅在剧情推进、休整或显式跳时后更新，保持时间流逝连贯。
+    当前日期:
+      check:
+        - 仅在日期确实推进时更新。
+    当前位面:
+      check:
+        - 只有明确跨位面移动时才更新。
+    当前地点:
+      check:
+        - 场景切换后更新。
+    当前天气:
+      check:
+        - 天气变化应有剧情依据。
+    近期事务:
+      type: |-
+        {
+          [事务id: string]: string
+        }
+      check:
+        - 仅记录最新且仍 relevant 的事务摘要，避免灌入冗长历史。
+  主角:
+    当前化身:
+      type: |-
+        {
+          id: string;
+          名称: string;
+          五维: {
+            力量: number;
+            敏捷: number;
+            体质: number;
+            感知: number;
+            意志: number;
+          };
+          HP当前: number;
+          HP上限: number;
+          MP当前: number;
+          MP上限: number;
+          护盾量: number;
+          物攻: number;
+          魔攻: number;
+          物防: number;
+          魔防: number;
+          技能列表: Record<string, any>;
+          状态效果: Array<{ 名称: string; 时间: number; 描述: string }>;
+          装备: Record<string, any>;
+        }
+      check:
+        - HP/MP 变化必须有剧情或结算依据，不得为负数。
+        - 装备、技能、状态变化只在明确获得、失去或结算时更新。
+    旅法师:
+      type: |-
+        {
+          当前火花阶段: string;
+          当前阶段进度: number;
+          已锚定位面: Record<string, string>;
+          已收录地印: Record<string, string>;
+          半位面总数: number;
+          已立界徽: Record<string, string>;
+          激活卡牌上限: number;
+          下一阶段: string;
+          下一阶段条件: string;
+          金钱: number;
+        }
+      check:
+        - 阶段、进度、金钱仅在对应剧情结果出现后更新。
+  队伍:
+    type: |-
+      {
+        [角色id: string]: {
+          id: string;
+          名称: string;
+          HP当前: number;
+          HP上限: number;
+          MP当前: number;
+          MP上限: number;
+        }
+      }
+    check:
+      - 仅保留当前在场队员。
+  敌方:
+    type: |-
+      {
+        [角色id: string]: {
+          id: string;
+          名称: string;
+          HP当前: number;
+          HP上限: number;
+        }
+      }
+    check:
+      - 普通聊天仅在明确敌方出现、离场或被击败时更新敌方摘要。
+  背包:
+    type: |-
+      {
+        [物品id: string]: {
+          id: string;
+          名称: string;
+          数量: number;
+          标签: string[];
+          描述: string;
+          效果: string;
+        }
+      }
+    check:
+      - 数量变化必须对应明确获得、消耗或整理结果。
+  任务:
+    type: |-
+      {
+        [任务id: string]: {
+          id: string;
+          名称: string;
+          描述: string;
+          目标: string;
+          奖励: string;
+          状态: '未开始' | '进行中' | '已完成' | '已失败';
+        }
+      }
+    check:
+      - 只更新受当前剧情影响的任务。
+  当前可见卡:
+    type: |-
+      {
+        [卡牌id: string]: {
+          id: string;
+          名称: string;
+          描述: string;
+          标签: string[];
+        }
+      }
+    check:
+      - 这里只能保留可见摘要，不得写入正式卡牌全文。

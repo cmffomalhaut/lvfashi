@@ -1,0 +1,533 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "星月市": {
+      "default": {
+        "当前时间": "07:00",
+        "当前日期": "2025年4月1日",
+        "当前季节": "春季",
+        "当前天气": "晴",
+        "当前地点": "星月市·中央区",
+        "场景氛围": "平静的清晨，城市刚刚苏醒"
+      },
+      "type": "object",
+      "properties": {
+        "当前时间": {
+          "type": "string"
+        },
+        "当前日期": {
+          "type": "string"
+        },
+        "当前季节": {
+          "type": "string"
+        },
+        "当前天气": {
+          "type": "string"
+        },
+        "当前地点": {
+          "type": "string"
+        },
+        "场景氛围": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "当前时间",
+        "当前日期",
+        "当前季节",
+        "当前天气",
+        "当前地点",
+        "场景氛围"
+      ]
+    },
+    "世界状态": {
+      "default": {
+        "表社会安定度": 85,
+        "里社会紧张度": 30,
+        "秘境活跃度": 20,
+        "时间带": "清晨",
+        "世界概述": "星月市，一座坐落在山海之间的现代化都市。表世界是普通的日本城市，而在暗处，魔法少女、阴阳师、忍者、魔法使等超自然势力暗中活跃。平日里各方维持着脆弱的平衡，但随着秘境活动的频繁，暗流正在涌动。"
+      },
+      "type": "object",
+      "properties": {
+        "表社会安定度": {
+          "type": "number"
+        },
+        "里社会紧张度": {
+          "type": "number"
+        },
+        "秘境活跃度": {
+          "type": "number"
+        },
+        "时间带": {
+          "type": "string",
+          "enum": [
+            "清晨",
+            "上午",
+            "中午",
+            "下午",
+            "傍晚",
+            "夜间",
+            "深夜"
+          ]
+        },
+        "世界概述": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "表社会安定度",
+        "里社会紧张度",
+        "秘境活跃度",
+        "时间带",
+        "世界概述"
+      ]
+    },
+    "主角": {
+      "default": {
+        "名称": "旅人",
+        "简介": "尚未设定背景",
+        "阵营": "自由中立",
+        "hp": 50,
+        "mp": 30
+      },
+      "type": "object",
+      "properties": {
+        "名称": {
+          "type": "string"
+        },
+        "简介": {
+          "type": "string"
+        },
+        "阵营": {
+          "type": "string"
+        },
+        "属性": {
+          "default": {
+            "武力": 8,
+            "灵力": 8,
+            "敏捷": 8,
+            "精神": 8,
+            "社交": 8
+          },
+          "type": "object",
+          "properties": {
+            "武力": {
+              "type": "number"
+            },
+            "灵力": {
+              "type": "number"
+            },
+            "敏捷": {
+              "type": "number"
+            },
+            "精神": {
+              "type": "number"
+            },
+            "社交": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "武力",
+            "灵力",
+            "敏捷",
+            "精神",
+            "社交"
+          ]
+        },
+        "hp": {
+          "type": "number"
+        },
+        "hp上限": {
+          "default": 50,
+          "type": "number"
+        },
+        "mp": {
+          "type": "number"
+        },
+        "mp上限": {
+          "default": 30,
+          "type": "number"
+        },
+        "状态": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "description": "状态名"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "描述": {
+                "type": "string"
+              },
+              "剩余回合": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "描述",
+              "剩余回合"
+            ]
+          }
+        },
+        "标签": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "description": "标签名"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "description": "标签描述"
+          }
+        },
+        "持有物": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "description": "物品名"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "描述": {
+                "type": "string"
+              },
+              "数量": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "描述",
+              "数量"
+            ]
+          }
+        }
+      },
+      "required": [
+        "名称",
+        "简介",
+        "阵营",
+        "hp",
+        "mp"
+      ]
+    },
+    "活跃角色": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "description": "角色名"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "阵营": {
+            "type": "string"
+          },
+          "简介": {
+            "type": "string"
+          },
+          "属性": {
+            "default": {
+              "武力": 8,
+              "灵力": 8,
+              "敏捷": 8,
+              "精神": 8,
+              "社交": 8
+            },
+            "type": "object",
+            "properties": {
+              "武力": {
+                "type": "number"
+              },
+              "灵力": {
+                "type": "number"
+              },
+              "敏捷": {
+                "type": "number"
+              },
+              "精神": {
+                "type": "number"
+              },
+              "社交": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "武力",
+              "灵力",
+              "敏捷",
+              "精神",
+              "社交"
+            ]
+          },
+          "hp": {
+            "type": "number"
+          },
+          "hp上限": {
+            "default": 50,
+            "type": "number"
+          },
+          "mp": {
+            "type": "number"
+          },
+          "mp上限": {
+            "default": 30,
+            "type": "number"
+          },
+          "状态": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "description": "状态名"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "描述": {
+                  "type": "string"
+                },
+                "剩余回合": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "描述",
+                "剩余回合"
+              ]
+            }
+          },
+          "立场": {
+            "type": "string",
+            "enum": [
+              "友善",
+              "中立",
+              "敌对",
+              "未知"
+            ]
+          },
+          "标签": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "description": "标签名"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "description": "标签描述"
+            }
+          }
+        },
+        "required": [
+          "阵营",
+          "简介",
+          "hp",
+          "mp",
+          "立场"
+        ]
+      }
+    },
+    "势力": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "description": "势力名"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "影响力": {
+            "type": "number"
+          },
+          "当前动向": {
+            "type": "string"
+          },
+          "领袖": {
+            "type": "string"
+          },
+          "据点": {
+            "type": "string"
+          },
+          "简介": {
+            "type": "string"
+          },
+          "关系": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "description": "目标势力"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "同盟",
+                "友好",
+                "中立",
+                "紧张",
+                "敌对",
+                "战争"
+              ]
+            }
+          }
+        },
+        "required": [
+          "影响力",
+          "当前动向",
+          "领袖",
+          "据点",
+          "简介",
+          "关系"
+        ]
+      }
+    },
+    "事件": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "description": "事件名"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "类型": {
+            "type": "string",
+            "enum": [
+              "主线",
+              "支线",
+              "日常",
+              "突发",
+              "秘境"
+            ]
+          },
+          "描述": {
+            "type": "string"
+          },
+          "进度": {
+            "type": "number"
+          },
+          "参与者": {
+            "type": "string"
+          },
+          "状态": {
+            "type": "string",
+            "enum": [
+              "进行中",
+              "待触发",
+              "已完成",
+              "失败"
+            ]
+          }
+        },
+        "required": [
+          "类型",
+          "描述",
+          "进度",
+          "参与者",
+          "状态"
+        ]
+      }
+    },
+    "秘境": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "description": "秘境名"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "描述": {
+            "type": "string"
+          },
+          "入口": {
+            "type": "string"
+          },
+          "稳定度": {
+            "type": "number"
+          },
+          "危险度": {
+            "type": "number"
+          },
+          "内在势力": {
+            "type": "string"
+          },
+          "状态": {
+            "type": "string",
+            "enum": [
+              "开放",
+              "不稳定",
+              "即将关闭",
+              "已关闭",
+              "未知"
+            ]
+          }
+        },
+        "required": [
+          "描述",
+          "入口",
+          "稳定度",
+          "危险度",
+          "内在势力",
+          "状态"
+        ]
+      }
+    },
+    "战斗": {
+      "default": {
+        "进行中": false,
+        "回合": 0,
+        "行动顺序": [],
+        "当前行动": "",
+        "战场": "",
+        "log": []
+      },
+      "type": "object",
+      "properties": {
+        "进行中": {
+          "type": "boolean"
+        },
+        "回合": {
+          "type": "number"
+        },
+        "行动顺序": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "当前行动": {
+          "type": "string"
+        },
+        "战场": {
+          "type": "string"
+        },
+        "log": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "进行中",
+        "回合",
+        "行动顺序",
+        "当前行动",
+        "战场",
+        "log"
+      ]
+    }
+  }
+}

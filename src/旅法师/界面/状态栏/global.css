@@ -1,0 +1,143 @@
+:root {
+  color-scheme: dark;
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.app-shell {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+}
+
+.app-header,
+.panel-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.75);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.3);
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-header h1,
+.panel-card h2 {
+  margin: 0 0 8px;
+}
+
+.app-header p,
+.panel-card p,
+.panel-card dd,
+.panel-card dt,
+.panel-card li,
+button {
+  font-size: 13px;
+}
+
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.chip--ok {
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.chip--warn {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.chip--action {
+  cursor: pointer;
+  border-color: rgba(96, 165, 250, 0.55);
+  color: inherit;
+}
+
+.tab-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tab-button {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(30, 41, 59, 0.8);
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.tab-button--active {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(30, 64, 175, 0.75);
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.panel-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.panel-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.simple-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.simple-list li {
+  display: grid;
+  gap: 4px;
+}
+
+.panel-actions {
+  margin-top: 12px;
+}
+
+.empty {
+  color: #94a3b8;
+}

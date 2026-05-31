@@ -1,0 +1,29 @@
+﻿# Context Snapshot — docs-requirements-srs
+
+- Task statement: 阅读 docs/ 下全部设计文档，进行澄清式 deep interview，识别矛盾/遗漏/不清晰点，最终输出结构化《项目需求规格说明书》。
+- Desired outcome: 基于现有设计文档和用户后续回答，收敛出一份可执行、可验收、边界清晰的项目需求规格说明书。
+- Stated solution: 先读完 docs 文档，再向用户逐轮提出澄清问题。
+- Probable intent hypothesis: 用户希望把分散的玩法/数据/UI/脚本设计文档收束成单一、可交付、可供后续实现的正式需求基线，并在实现前暴露互相冲突或缺失的决策。
+- Known facts/evidence:
+  - docs/ 下共有 7 份文档：核心设计、数据结构、世界书与变量规则、任务系统、检定系统、战斗系统、脚本与界面实现清单。
+  - 文档已明确大量机制边界：AI 为主裁判；脚本负责注入骰子池、变量白名单、结构校验、快照回滚、CombatLog 遮蔽等。
+  - 冷/热数据分层已明确：聊天变量卡牌仓库（冷） + 最新楼层 MVU（热） + 楼层正文 CombatLog。
+  - 第一版多次强调：不做完整战斗引擎、不做自动任务奖励、不做离队归档、不做背包冷藏、不做复杂任务树。
+  - 当前可见区、卡牌整理、战斗浮窗、任务与近期事务分离等设计较完整。
+- Constraints:
+  - 当前处于 deep-interview 模式；本阶段只做需求澄清，不直接实现。
+  - outside tmux surface；不能使用 omx question，需每轮只问一个简洁问题。
+  - 最终输出需是结构化《项目需求规格说明书》。
+- Unknowns/open questions:
+  - 这些文档是否共同定义“同一个第一版交付范围”，还是同时包含 v1 必做与中长期想法。
+  - 最终规格说明书的对象是“实现团队内部开发规格”还是“产品/需求基线文档”，粒度要求尚不明。
+  - 各模块优先级与验收顺序尚未被用户显式确认。
+  - 文档中“检定系统”存在 AI 主裁判 与 系统消息追加检定结果/世界书自动判定 两套表述，是否为历史遗留待裁剪。
+  - 文档中“经验值/升级由脚本在战斗后计算”与“成长和升级不由 AI 直接结算”之间的完整责任链仍需确认。
+- Decision-boundary unknowns:
+  - 哪些实现细节可由后续实现方自行决定，哪些必须写死在规格里。
+  - 是否允许为落地性而修改现有文档中的个别冲突点，还是只能忠实整理并标注冲突。
+- Likely codebase touchpoints:
+  - docs/*.md
+  - 未来可能涉及 .cursor/rules/*.mdc 中的酒馆助手、MVU、前端界面、脚本约束。
+- Prompt-safe initial-context summary status: not_needed

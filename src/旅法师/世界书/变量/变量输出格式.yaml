@@ -1,0 +1,21 @@
+---
+变量输出格式:
+  rule:
+    - 你必须在回复末尾一次性输出更新分析和 JSON Patch。
+    - 只允许更新主热状态白名单：世界、主角、队伍、敌方、背包、任务、当前可见卡。
+    - 禁止直接更新正式卡牌仓库全文、battle_session、历史 CombatLog、历史 DicePool。
+    - 路径名不得带 stat_data. 或 status_current_variables. 前缀。
+    - number 字段只能用 replace 或 delta；delta 只用于现有 number 路径。
+  format: |-
+    <UpdateVariable>
+    <Analysis>$(IN ENGLISH, no more than 80 words)
+    - ${what changed in this reply}
+    - ${why each update is justified by the current reply only}
+    </Analysis>
+    <JSONPatch>
+    [
+      { "op": "replace", "path": "/世界/当前地点", "value": "新的地点" },
+      { "op": "delta", "path": "/主角/当前化身/HP当前", "value": -3 }
+    ]
+    </JSONPatch>
+    </UpdateVariable>
