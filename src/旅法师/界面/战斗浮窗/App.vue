@@ -1,110 +1,110 @@
-﻿<template>
+<template>
   <div class="battle-shell">
     <header class="battle-header">
       <div>
-        <h1>鎴樻枟娴獥</h1>
-        <p>鍚屽眰鎭㈠ / 璺ㄦゼ灞傞噸寤?/ 鏀惧純鍥炴粴 宸叉帴鍏?battle_session銆?/p>
+        <h1>旅法师战斗浮窗</h1>
+        <p>战斗临时状态写入 battle_session；主状态只在终局提交或放弃时变更。</p>
       </div>
       <div class="header-actions">
-        <button class="btn btn--ghost" @click="close">闅愯棌</button>
+        <button class="btn btn--ghost" @click="close">隐藏</button>
       </div>
     </header>
 
     <section class="summary-grid">
       <article class="card">
-        <h2>浼氳瘽鐘舵€?/h2>
+        <h2>会话状态</h2>
         <dl>
-          <div><dt>婵€娲?/dt><dd>{{ battleSession.婵€娲?? '鏄? : '鍚? }}</dd></div>
+          <div><dt>激活</dt><dd>{{ battleSession.激活 ? '是' : '否' }}</dd></div>
           <div><dt>mode</dt><dd>{{ battleSession.meta.mode }}</dd></div>
           <div><dt>phase</dt><dd>{{ battleSession.phase }}</dd></div>
           <div><dt>source_message_id</dt><dd>{{ battleSession.meta.source_message_id }}</dd></div>
-          <div><dt>褰撳墠妤煎眰</dt><dd>{{ sourceMessageId }}</dd></div>
+          <div><dt>当前楼层</dt><dd>{{ sourceMessageId }}</dd></div>
           <div><dt>round</dt><dd>{{ battleSession.round.round_no }}</dd></div>
           <div><dt>acting_side</dt><dd>{{ battleSession.round.acting_side }}</dd></div>
-          <div><dt>checkpoint</dt><dd>{{ roundCheckpointDirty ? '鏈夋湭鎻愪氦鍗婂洖鍚? : '鏁村洖鍚堝凡钀界偣' }}</dd></div>
-          <div><dt>AI缁撶畻</dt><dd>{{ isResolving ? '杩涜涓? : '绌洪棽' }}</dd></div>
+          <div><dt>checkpoint</dt><dd>{{ roundCheckpointDirty ? '有未提交回合状态' : '回合已落点' }}</dd></div>
+          <div><dt>AI 结算</dt><dd>{{ isResolving ? '进行中' : '空闲' }}</dd></div>
         </dl>
       </article>
 
       <article class="card">
-        <h2>鎴樻枟鍏ュ彛</h2>
+        <h2>入口</h2>
         <div class="button-grid">
-          <button class="btn" @click="startBattle">寮€濮嬫垬鏂?/button>
-          <button class="btn" @click="resumeOrRebuild">鎭㈠ / 閲嶅缓</button>
-          <button class="btn" @click="forceRebuild">寮哄埗閲嶅缓</button>
-          <button class="btn btn--warn" :disabled="!battleSession.婵€娲? @click="abandon">鏀惧純骞跺洖婊?/button>
+          <button class="btn" @click="startBattle">开始战斗</button>
+          <button class="btn" @click="resumeOrRebuild">恢复 / 重建</button>
+          <button class="btn" @click="forceRebuild">强制重建</button>
+          <button class="btn btn--warn" :disabled="!battleSession.激活" @click="abandon">放弃并回滚</button>
         </div>
-        <p class="hint">鏁屾柟鏁伴噺锛歿{ enemyCount }} / 鍙仮澶嶏細{{ canResume ? '鏄? : '鍚? }}</p>
+        <p class="hint">敌方数量：{{ enemyCount }} / 可恢复：{{ canResume ? '是' : '否' }}</p>
       </article>
     </section>
 
     <section class="summary-grid">
       <article class="card">
-        <h2>鐜╁鏄庨</h2>
+        <h2>玩家检定</h2>
         <dl>
           <div><dt>roll</dt><dd>{{ battleSession.player_check.roll }}</dd></div>
           <div><dt>reroll_used</dt><dd>{{ battleSession.player_check.reroll_used }}/3</dd></div>
-          <div><dt>confirmed</dt><dd>{{ battleSession.player_check.confirmed ? '鏄? : '鍚? }}</dd></div>
+          <div><dt>confirmed</dt><dd>{{ battleSession.player_check.confirmed ? '是' : '否' }}</dd></div>
         </dl>
-        <textarea v-model="strategyDraft" class="strategy-box" placeholder="杈撳叆鏈洖鍚堢瓥鐣?></textarea>
+        <textarea v-model="strategyDraft" class="strategy-box" placeholder="输入本回合策略"></textarea>
         <div class="button-grid">
-          <button class="btn" @click="saveStrategy">淇濆瓨绛栫暐</button>
+          <button class="btn" @click="saveStrategy">保存策略</button>
           <button
             class="btn"
             :disabled="isResolving || battleSession.player_check.confirmed || battleSession.player_check.reroll_used >= 3"
             @click="reroll"
           >
-            閲嶆幏
+            重掷明骰
           </button>
           <button class="btn btn--primary" :disabled="isResolving || battleSession.player_check.confirmed" @click="confirm">
-            纭鏈洖鍚?          </button>
-          <button
-            class="btn"
-            :disabled="isResolving || !battleSession.player_check.confirmed"
-            @click="resolveAgain"
-          >
-            閲嶆柊璇锋眰 AI 缁撶畻
+            确认并请求 AI 预览
           </button>
-          <button class="btn btn--ghost" :disabled="isResolving" @click="useMockPreview">浣跨敤鏈湴棰勮鍏滃簳</button>
+          <button class="btn" :disabled="isResolving || !battleSession.player_check.confirmed" @click="resolveAgain">
+            重新结算
+          </button>
+          <button class="btn btn--ghost" :disabled="isResolving" @click="useMockPreview">使用本地预览兜底</button>
         </div>
-        <p v-if="lastResolveError" class="hint hint--error">AI 缁撶畻澶辫触锛歿{ lastResolveError }}</p>
+        <p v-if="lastResolveError" class="hint hint--error">AI 结算失败：{{ lastResolveError }}</p>
       </article>
 
       <article class="card">
-        <h2>棰勮涓庡壇鏈?/h2>
-        <p>{{ battleSession.pending_preview.summary || '绛夊緟纭鍚庣敓鎴愰瑙堛€? }}</p>
+        <h2>回合预览</h2>
+        <p>{{ battleSession.pending_preview.summary || '等待确认后生成预览。' }}</p>
         <div class="button-grid">
           <button
             class="btn btn--primary"
             :disabled="isResolving || !battleSession.pending_preview.summary"
             @click="applyPreview"
           >
-            鎻愪氦鍒?battle_session
+            提交到下一回合
+          </button>
+          <button class="btn btn--warn" :disabled="!battleSession.pending_preview.summary" @click="finishBattle">
+            标记终局
           </button>
         </div>
         <dl>
           <div><dt>allies</dt><dd>{{ Object.keys(battleSession.combatants.allies).length }}</dd></div>
           <div><dt>enemies</dt><dd>{{ Object.keys(battleSession.combatants.enemies).length }}</dd></div>
-          <div><dt>dark_pool</dt><dd>{{ battleSession.shared_dark_pool.values.join(', ') || '鈥? }}</dd></div>
+          <div><dt>dark_pool</dt><dd>{{ battleSession.shared_dark_pool.values.join(', ') || '—' }}</dd></div>
           <div><dt>dark_pool_cursor</dt><dd>{{ battleSession.shared_dark_pool.cursor }}</dd></div>
           <div><dt>world_events</dt><dd>{{ Object.keys(battleSession.pending_preview.proposed_world_events).length }}</dd></div>
           <div><dt>loot</dt><dd>{{ Object.keys(battleSession.pending_preview.proposed_loot).length }}</dd></div>
         </dl>
         <div v-if="Object.keys(battleSession.pending_preview.proposed_world_events).length" class="preview-block">
-          <h3>杩戞湡浜嬪姟鑽夋</h3>
+          <h3>近期事务草案</h3>
           <ul class="info-list">
             <li v-for="(event, key) in battleSession.pending_preview.proposed_world_events" :key="key">
-              <strong>{{ key }}</strong>锛歿{ event }}
+              <strong>{{ key }}</strong>
+              <span>{{ event }}</span>
             </li>
           </ul>
         </div>
         <div v-if="Object.keys(battleSession.pending_preview.proposed_loot).length" class="preview-block">
-          <h3>鎴樺埄鍝佽崏妗?/h3>
+          <h3>战利品草案</h3>
           <ul class="info-list">
             <li v-for="loot in Object.values(battleSession.pending_preview.proposed_loot)" :key="loot.id">
-              <strong>{{ loot.鍚嶇О }}</strong>
-              <span>x{{ loot.鏁伴噺 }}</span>
-              <span>{{ loot.鎻忚堪 }}</span>
+              <strong>{{ loot.名称 }}</strong>
+              <span>x{{ loot.数量 }}</span>
             </li>
           </ul>
         </div>
@@ -113,42 +113,43 @@
 
     <section class="summary-grid">
       <article class="card">
-        <h2>缁堝眬杈撳嚭</h2>
+        <h2>终局提交</h2>
         <div class="mode-switch">
           <label class="radio-option">
             <input v-model="outputMode" type="radio" value="summary_only" />
-            <span>浠呮垬鏂楀皬缁?/span>
+            <span>只写入简要总结</span>
           </label>
           <label class="radio-option">
             <input v-model="outputMode" type="radio" value="full_log" />
-            <span>鍏ㄦ祦绋嬫棩蹇?/span>
+            <span>写入完整战斗记录</span>
           </label>
         </div>
-        <textarea v-model="summaryDraft" class="strategy-box strategy-box--sm" placeholder="杈撳叆鎴樻枟灏忕粨"></textarea>
+        <textarea v-model="summaryDraft" class="strategy-box strategy-box--sm" placeholder="输入战斗小结"></textarea>
         <textarea
           v-model="fullLogDraft"
           class="strategy-box"
-          placeholder="杈撳叆鍏ㄦ祦绋嬫垬鏂楄褰曪紙閫夋嫨 full_log 鏃朵紭鍏堝洖鍐欒繖閲岋級"
+          placeholder="需要 full_log 时输入完整战斗记录"
         ></textarea>
         <div class="button-grid">
-          <button class="btn" :disabled="!battleSession.婵€娲? @click="syncOutputMode">淇濆瓨杈撳嚭妯″紡</button>
+          <button class="btn" :disabled="!battleSession.激活" @click="syncOutputMode">保存输出模式</button>
           <button
             class="btn btn--primary"
-            :disabled="!battleSession.????|| battleSession.phase !== 'finished'"
+            :disabled="!battleSession.激活 || battleSession.phase !== 'finished'"
             @click="commitBattle"
           >
-            缁堝眬鎻愪氦鍥炰富鐘舵€?          </button>
+            终局提交回主状态
+          </button>
         </div>
-        <p class="hint">??? phase = finished ?????????????????????????????????/p>
+        <p class="hint">终局提交前必须先把 phase 标记为 finished；提交后 battle_session 会被清空。</p>
       </article>
 
       <article class="card">
-        <h2>鍥炴粴/鎭㈠璇存槑</h2>
+        <h2>规则提示</h2>
         <ul class="info-list">
-          <li>鍏抽棴娴獥锛氳嫢褰撳墠鍗婂洖鍚堟湭鎻愪氦锛屼笅娆″悓灞傛墦寮€浼氬洖婊氬埌鏈€杩?checkpoint銆?/li>
-          <li>鍚屽眰鎭㈠锛氬彧鎭㈠鏁村洖鍚堣竟鐣岋紝涓嶄繚鐣欏崐鍥炲悎鑴忕姸鎬併€?/li>
-          <li>璺ㄦゼ灞傞噸寮€锛氫互褰撳墠妤煎眰鏁屾垜鐘舵€侀噸寤烘柊鐨?battle_session銆?/li>
-          <li>瀹屽叏鏀惧純锛氭仮澶嶆垬鍓嶅揩鐓у苟娓呯┖ battle_session銆?/li>
+          <li>同楼层重开：若回合中途关闭，会恢复到最近 checkpoint。</li>
+          <li>跨楼层重开：以当前楼层敌我状态重建新的 battle_session。</li>
+          <li>完全放弃：恢复战前快照并清空 battle_session。</li>
+          <li>终局提交：合并战斗单位、掉落和近期事务，再清空 battle_session。</li>
         </ul>
       </article>
     </section>
@@ -163,6 +164,7 @@ import { useBattleWindowStore } from './store';
 const store = useBattleWindowStore();
 const { battleSession, canResume, enemyCount, isResolving, lastResolveError, roundCheckpointDirty, sourceMessageId } =
   storeToRefs(store);
+
 const strategyDraft = ref('');
 const outputMode = ref<BattleSession['output_mode']>('summary_only');
 const summaryDraft = ref('');
@@ -187,7 +189,7 @@ watch(
 watch(
   () => battleSession.value.pending_preview.summary,
   value => {
-    if (value && !summaryDraft.value) {
+    if (!summaryDraft.value && value) {
       summaryDraft.value = value;
     }
   },
@@ -197,56 +199,49 @@ watch(
 const startBattle = async () => {
   await store.startBattle();
 };
-
 const resumeOrRebuild = async () => {
   await store.resumeOrRebuild();
 };
-
 const forceRebuild = async () => {
   await store.forceRebuild();
 };
-
 const saveStrategy = async () => {
   await store.saveStrategy(strategyDraft.value);
 };
-
 const reroll = async () => {
   await store.reroll();
 };
-
 const confirm = async () => {
   await store.confirm();
 };
-
 const resolveAgain = async () => {
   await store.resolveAgain();
 };
-
 const useMockPreview = async () => {
   await store.useMockPreview();
 };
-
 const applyPreview = async () => {
   await store.applyPreview();
 };
-
+const finishBattle = async () => {
+  await store.finishBattle();
+};
 const syncOutputMode = async () => {
   await store.setOutputMode(outputMode.value);
 };
-
 const commitBattle = async () => {
   await store.commitBattle({
     summary: summaryDraft.value,
     fullLog: fullLogDraft.value,
     outputMode: outputMode.value,
   });
+  summaryDraft.value = '';
+  fullLogDraft.value = '';
 };
-
 const abandon = async () => {
   await store.abandon();
+  summaryDraft.value = '';
+  fullLogDraft.value = '';
 };
-
-const close = () => {
-  store.close();
-};
+const close = () => store.close();
 </script>

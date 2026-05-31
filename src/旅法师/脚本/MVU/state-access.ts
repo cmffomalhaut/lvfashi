@@ -40,7 +40,7 @@ type CanonicalTransactionConfig = {
   sourceMessageId?: number;
   maxRetries?: number;
   mutate: (draft: CanonicalState, before: CanonicalState) => CanonicalState | void | Promise<CanonicalState | void>;
-  postCheck?: (before: CanonicalState, after: CanonicalState) => boolean;
+  postCheck?: (before: CanonicalState, candidate: CanonicalState) => boolean;
   postCheckMessage?: string;
 };
 
@@ -65,9 +65,19 @@ type MemoryStateAccess = StateAccessApi & {
 
 export const LATEST_MESSAGE_VARIABLE_OPTION = Object.freeze({ type: 'message', message_id: 'latest' } as const);
 
+function resolveRuntimeLatestMessageId(): number | undefined {
+  const current = (globalThis as typeof globalThis & { getCurrentMessageId?: () => number | string | undefined }).getCurrentMessageId?.();
+  if (current === undefined) {
+    return undefined;
+  }
+  const numeric = Number(current);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
 const runtimeBindings: StateAccessBindings = {
   readVariables: option => getVariables(option),
   writeVariables: (updater, option) => updateVariablesWith(updater, option),
+  resolveLatestMessageId: resolveRuntimeLatestMessageId,
 };
 
 function parseCanonicalState(variables: Record<string, any>): CanonicalState {
@@ -111,21 +121,44 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
         return createFailure('scope_guard_failed', 'source_message_id mismatch', attempt);
       }
 
-      const beforeVariables = bindings.readVariables(variableOption);
-      const before = parseCanonicalState(beforeVariables);
-      const draft = klona(before);
-      const mutated = await mutate(draft, before);
-      const candidate = mutated ?? draft;
-      const parsed = Schema.safeParse(candidate, { reportInput: true });
-      if (!parsed.success) {
-        return createFailure('validation_failed', z.prettifyError(parsed.error), attempt);
+      let result: StateAccessTransactionResult | null = null;
+
+      await Promise.resolve(
+        bindings.writeVariables(async variables => {
+          if (!ensureScope(bindings, sourceMessageId)) {
+            result = createFailure('scope_guard_failed', 'source_message_id mismatch', attempt);
+            return variables;
+          }
+
+          const before = parseCanonicalState(variables);
+          const draft = klona(before);
+          const mutated = await mutate(draft, before);
+          const candidate = mutated ?? draft;
+          const parsed = Schema.safeParse(candidate, { reportInput: true });
+          if (!parsed.success) {
+            result = createFailure('validation_failed', z.prettifyError(parsed.error), attempt);
+            return variables;
+          }
+
+          if (postCheck && !postCheck(before, parsed.data)) {
+            result = createFailure('post_check_failed', postCheckMessage, attempt);
+            return variables;
+          }
+
+          const nextVariables = klona(variables);
+          _.set(nextVariables, 'stat_data', parsed.data);
+          result = { ok: true, attempt, before, after: parsed.data };
+          return nextVariables;
+        }, variableOption),
+      );
+
+      const currentResult: StateAccessTransactionResult =
+        result ?? createFailure('post_check_failed', postCheckMessage, attempt);
+      if (currentResult.ok) {
+        return currentResult;
       }
-
-      await Promise.resolve(bindings.writeVariables(variables => _.set(variables, 'stat_data', parsed.data), variableOption));
-
-      const after = readCanonicalState(variableOption);
-      if (!postCheck || postCheck(before, after)) {
-        return { ok: true, attempt, before, after };
+      if (currentResult.reason !== 'post_check_failed' || attempt === maxRetries) {
+        return currentResult;
       }
     }
 
@@ -149,7 +182,7 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
         const nextMain = MainStateSchema.parse(mutatedMain ?? draftMain, { reportInput: true });
         Object.assign(draft, nextMain, { battle_session: draft.battle_session });
       },
-      postCheck: (before, after) => _.isEqual(before.battle_session, after.battle_session),
+      postCheck: (before, candidate) => _.isEqual(before.battle_session, candidate.battle_session),
       postCheckMessage: 'battle_session changed during main-state transaction',
     });
 
@@ -171,7 +204,7 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
           reportInput: true,
         });
       },
-      postCheck: (before, after) => _.isEqual(projectMainState(before), projectMainState(after)),
+      postCheck: (before, candidate) => _.isEqual(projectMainState(before), projectMainState(candidate)),
       postCheckMessage: 'main-state projection changed during battle transaction',
     });
 
@@ -198,13 +231,13 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
 export type StateAccessApi = ReturnType<typeof createStateAccess>;
 
 export function createMemoryStateAccess(initialState: Partial<CanonicalState> = {}, latestMessageId = -1): MemoryStateAccess {
-  let variables = { stat_data: Schema.parse(initialState, { reportInput: true }) };
+  let variables: Record<string, any> = { stat_data: Schema.parse(initialState, { reportInput: true }) };
   let currentLatestMessageId = latestMessageId;
 
   const access = createStateAccess({
     readVariables: () => klona(variables),
-    writeVariables: updater => {
-      const nextVariables = updater(klona(variables));
+    writeVariables: async updater => {
+      const nextVariables = await updater(klona(variables));
       variables = klona(nextVariables);
       return variables;
     },
