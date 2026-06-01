@@ -26,6 +26,15 @@ function clearMountRetry() {
 function reportLaunchError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   console.error('[planeswalker.battle-window] 启动失败', error);
+  const body = iframe?.[0]?.contentDocument?.body;
+  if (body) {
+    body.innerHTML = `
+      <div style="min-height:100vh;box-sizing:border-box;padding:20px;background:linear-gradient(180deg,rgba(15,23,42,0.98),rgba(17,24,39,0.98));color:#fecaca;font:14px/1.6 'Segoe UI','Microsoft YaHei UI',sans-serif;">
+        <h2 style="margin:0 0 12px;font-size:18px;color:#fecaca;">战斗浮窗启动失败</h2>
+        <pre style="margin:0;white-space:pre-wrap;word-break:break-word;">${_.escape(message)}</pre>
+      </div>
+    `;
+  }
   if (typeof toastr !== 'undefined') {
     toastr.error(message, '战斗浮窗启动失败');
   }
@@ -83,7 +92,13 @@ function scheduleMount(frame: HTMLIFrameElement, retries = 40) {
     }
 
     try {
-      body.innerHTML = '<div id="app"></div>';
+      body.style.margin = '0';
+      body.style.minHeight = '100vh';
+      body.style.background = 'linear-gradient(180deg, rgba(15,23,42,0.98), rgba(17,24,39,0.98))';
+      body.style.color = '#e2e8f0';
+      body.style.fontFamily = `'Segoe UI', 'Microsoft YaHei UI', sans-serif`;
+      body.innerHTML =
+        '<div id="app" style="display:block;min-height:100vh;box-sizing:border-box;padding:14px;color:#e2e8f0;">正在加载战斗浮窗...</div>';
       styleHandle = teleportStyle(head);
       app = await mountBattleWindowApp(body.querySelector('#app')!);
       mounted = true;
