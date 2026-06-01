@@ -10,6 +10,7 @@ let iframe: JQuery<HTMLIFrameElement> | null = null;
 let launcher: JQuery<HTMLDivElement> | null = null;
 let styleHandle: { destroy: () => void } | null = null;
 let mounted = false;
+let mountingPromise: Promise<void> | null = null;
 
 function isWindowVisible(): boolean {
   return Boolean(iframe?.is(':visible'));
@@ -77,6 +78,22 @@ function hideWindow() {
   syncLauncherState();
 }
 
+async function waitForIframeDocument(frame: HTMLIFrameElement) {
+  const timeoutAt = Date.now() + 3000;
+
+  while (Date.now() < timeoutAt) {
+    const document = frame.contentDocument;
+    const body = document?.body;
+    const head = document?.head;
+    if (body && head) {
+      return { body, head };
+    }
+    await new Promise(resolve => setTimeout(resolve, 16));
+  }
+
+  throw new Error('battle iframe did not initialize correctly');
+}
+
 async function ensureWindowMounted() {
   ensureLauncherMounted();
   if (!iframe) {
@@ -104,25 +121,20 @@ async function ensureWindowMounted() {
     return;
   }
 
-  const frame = iframe[0];
-  await new Promise<void>(resolve => {
-    if (frame.contentDocument?.readyState === 'complete') {
-      resolve();
-      return;
-    }
-    iframe!.one('load', () => resolve());
-  });
-
-  const body = frame.contentDocument?.body;
-  const head = frame.contentDocument?.head;
-  if (!body || !head) {
-    throw new Error('battle iframe did not initialize correctly');
+  if (!mountingPromise) {
+    const frame = iframe[0];
+    mountingPromise = (async () => {
+      const { body, head } = await waitForIframeDocument(frame);
+      body.innerHTML = '<div id="app"></div>';
+      styleHandle = teleportStyle(head);
+      app = await mountBattleWindowApp(body.querySelector('#app')!);
+      mounted = true;
+    })().finally(() => {
+      mountingPromise = null;
+    });
   }
 
-  body.innerHTML = '<div id="app"></div>';
-  styleHandle = teleportStyle(head);
-  app = await mountBattleWindowApp(body.querySelector('#app')!);
-  mounted = true;
+  await mountingPromise;
   showWindow();
 }
 
@@ -158,6 +170,7 @@ $(() => {
     launcher?.remove();
     launcher = null;
     mounted = false;
+    mountingPromise = null;
     unique.unregister();
   });
 });
