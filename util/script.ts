@@ -32,7 +32,7 @@ export function createScriptIdIframe(): JQuery<HTMLIFrameElement> {
 }
 
 export function createScriptIdDiv(): JQuery<HTMLDivElement> {
-  return $('<div>').attr('script_id', getScriptId()) as JQuery<HTMLDivElement>;
+  return $('<div>').attr({ script_id: getScriptId(), 'data-script-id': getScriptId() }) as JQuery<HTMLDivElement>;
 }
 
 export function reloadOnChatChange(): EventOnReturn {

@@ -1,9 +1,32 @@
 import type { App as VueApp } from 'vue';
-import { createScriptIdDiv, createScriptIdIframe, registerAsUniqueScript, teleportStyle } from '@util/script';
+import { createScriptIdDiv, teleportStyle } from '@util/script';
 import { mountBattleWindowApp } from '../../界面/战斗浮窗/index';
 
 const OPEN = 'planeswalker:battle:open';
 const CLOSE = 'planeswalker:battle:close';
+const BATTLE_IFRAME_SRCDOC = `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: auto !important;
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.98));
+      }
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body></body>
+</html>`;
 
 let app: VueApp | null = null;
 let iframe: JQuery<HTMLIFrameElement> | null = null;
@@ -124,7 +147,12 @@ function openWindow() {
     destroyWindow();
   }
 
-  const nextIframe = createScriptIdIframe()
+  const nextIframe = ($('<iframe>') as JQuery<HTMLIFrameElement>)
+    .attr({
+      script_id: getScriptId(),
+      frameborder: 0,
+      srcdoc: BATTLE_IFRAME_SRCDOC,
+    })
     .attr('title', '旅法师战斗浮窗')
     .css({
       position: 'fixed',
@@ -177,6 +205,7 @@ function ensureLauncherMounted() {
     });
 
   launcher = createScriptIdDiv()
+    .attr('data-script-id', getScriptId())
     .attr('data-role', 'battle-launcher')
     .css({
       position: 'fixed',
@@ -202,11 +231,6 @@ function handleMessage(event: MessageEvent<{ type?: string }>) {
 }
 
 $(() => {
-  const unique = registerAsUniqueScript('planeswalker.battle-window');
-  if (unique.getPreferredScriptId() !== getScriptId()) {
-    return;
-  }
-
   ensureLauncherMounted();
   window.addEventListener('message', handleMessage);
 
@@ -215,6 +239,5 @@ $(() => {
     destroyWindow();
     launcher?.remove();
     launcher = null;
-    unique.unregister();
   });
 });

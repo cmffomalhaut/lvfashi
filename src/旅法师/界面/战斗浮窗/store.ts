@@ -3,6 +3,7 @@ import { type BattleSession, type MainState, Schema } from '../../schema.ts';
 import { projectBattleSession, projectMainState, stateAccess } from '../../脚本/MVU/state-access.ts';
 import {
   createDefaultBattleApiProfile,
+  createDefaultBattleFrontendSettings,
   createDefaultBattleProfile,
   type BattleApiProfile,
   type BattleFieldAnalysisPayload,
@@ -40,7 +41,7 @@ function resolveLatestMessageId(): number {
 
 export const useBattleWindowStore = defineStore('planeswalker.battle-window', () => {
   const canonicalState = ref(Schema.parse({}, { reportInput: true }));
-  const settings = ref<BattleFrontendSettings>(battleFrontendSettingsAccess.read());
+  const settings = ref<BattleFrontendSettings>(createDefaultBattleFrontendSettings());
   const discoveredModels = ref<Record<string, string[]>>({});
   const isResolving = ref(false);
   const isApiBusy = ref(false);
@@ -63,11 +64,21 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   let retryLastRuntimeAction: null | (() => Promise<unknown>) = null;
 
   const refresh = () => {
-    canonicalState.value = stateAccess.readCanonicalState();
+    try {
+      canonicalState.value = stateAccess.readCanonicalState();
+    } catch (error) {
+      lastResolveError.value = error instanceof Error ? error.message : String(error);
+      canonicalState.value = Schema.parse({}, { reportInput: true });
+    }
   };
 
   const refreshSettings = async () => {
-    settings.value = await battleFrontendSettingsAccess.load();
+    try {
+      settings.value = await battleFrontendSettingsAccess.load();
+    } catch (error) {
+      lastApiError.value = error instanceof Error ? error.message : String(error);
+      settings.value = createDefaultBattleFrontendSettings();
+    }
   };
 
   refresh();
