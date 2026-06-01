@@ -53,7 +53,9 @@
 - 已完成快速整场执行链的正式编码
 - 已完成战利品结算执行链的正式编码
 - 已完成扁平路径更新校验与 MVU 写回层的正式编码
-- 与现有 `battle_session` 的进一步整合策略细化、调试与回显工具仍未开始
+- 已完成与现有 `battle_session` 的第一版整合
+- 已完成调试与回显工具的第一版编码
+- 已完成脚本侧独立战斗入口补齐
 
 ---
 
@@ -479,41 +481,48 @@
   - 支持将 AI 扁平更新合并为 `battle_session.runtime.accumulated_updates`
   - 终局提交时会先应用累计 `stat_data.*` 更新，再合并战斗单位、掉落和近期事务写回 MVU
 
+### 3.20 与现有 `battle_session` 的整合已落地
+
+- 已补齐：
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的配置驱动正式执行入口
+  - [session.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/session.ts) 的运行结果应用接口
+  - [runtime-session.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/runtime-session.ts) 的运行态投影与 `pending_preview` 适配
+  - [snapshot.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/snapshot.ts) / [schema.ts](E:/Gg/tavern_resource-main/src/旅法师/schema.ts) 的运行态与快照补齐
+
+- 当前整合已实现：
+  - 新配置层会驱动现有 `battle_session` 的单回合、整场和掉落流程
+  - 继续复用现有 `session.ts` 的阶段推进和 `commit.ts` 的终局提交边界
+  - `freeform` / `dice_driven` 都通过同一套 battle_session 事务态推进
+  - `selected_data` 会跟随 `battle_session.runtime.accumulated_updates` 持续投影，而不是每回合回退到战前主状态
+
+### 3.21 调试与回显工具已落地
+
+- 已补齐：
+  - [api-client.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/api-client.ts) 的 `BattleAiParseError`
+  - [field-analysis.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/field-analysis.ts) / [runtime-ai.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/runtime-ai.ts) 的原始文本保留
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的最近一次请求重试入口
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的 raw text / payload / parsed result 三联回显
+
+- 当前调试能力已实现：
+  - 查看最近一次字段分析 payload、原始文本、解析结果
+  - 查看最近一次正式运行 payload、原始文本、解析结果
+  - 解析失败时仍尽量保留 raw text 与 payload
+  - 可直接重试上一次字段分析或正式运行请求
+
+### 3.22 脚本侧独立战斗入口已落地
+
+- 已补齐：
+  - [index.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/index.ts) 的独立启动按钮
+  - [README.md](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/README.md) 的入口职责说明
+
+- 当前入口能力已实现：
+  - 即使未加载状态栏界面，也能直接从脚本侧看到“打开战斗浮窗”按钮
+  - 按钮可在打开/隐藏之间切换，不再完全依赖 `planeswalker:battle:open` 外部消息
+  - 启动按钮与 iframe 位置错开，避免打开后入口被遮住
+
 ---
 
 ## 4. 待实现
-
-### 4.13 与现有 `battle_session` 的整合策略
-
-状态：
-- 未开始
-
-目标：
-- 将新通用配置层和 AI 协议层接入现有 `battle_session` 流程
-- 复用现有事务态和提交层边界
-
-当前倾向：
-- 优先复用现有事务边界
-
-完成标准：
-- 明确适配层位置
-- 明确哪些流程沿用现有 `session.ts / commit.ts`
-- 明确哪些流程走新配置体系
-
-### 4.14 调试与回显工具
-
-状态：
-- 未开始
-
-目标：
-- 查看发送给 AI 的实际 payload
-- 查看 AI 原始文本和解析后 JSON
-
-完成标准：
-- 能快速定位格式错误
-- 能支持重试和调 prompt
-
----
 
 ## 5. 当前推荐实现顺序
 
@@ -526,7 +535,7 @@
 5. 与现有 `battle_session` 的整合
 6. 调试与回显工具
 
-当前 `1-4` 已完成，下一步从 `5` 开始。
+当前 `1-6` 已全部完成。
 
 ---
 
@@ -534,15 +543,15 @@
 
 最近一步建议固定为：
 
-1. 先实现与现有 `battle_session` 的整合策略细化
+1. 先做整体功能评估、漏洞检查与手动测试前清单整理
 
 原因：
-- 单回合、整场、掉落和写回层已经有可运行落点
-- 下一步应明确哪些流程继续复用现有 `session.ts / commit.ts`，哪些仍由新配置层负责
+- 主链功能和调试工具已经全部落地
+- 下一步更有价值的是围绕实际 Tavern 人工测试做检查与回归验证
 
 做完这一步后，下一步应切到：
 
-2. 调试与回显工具
+2. 根据人工测试结果修补具体问题
 
 ---
 
@@ -550,7 +559,7 @@
 
 第一版完成的最低标准：
 
-- 执行计划中的 `1-13` 全部完成
+- 执行计划中的主链能力全部完成
 - 用户可以在 Tavern Helper + MVU 宿主内实际走完整主链
 - 两种模式都能实际使用：
   - `dice_driven`
@@ -558,9 +567,6 @@
 - `freeform` / `dice_driven` 切换行为符合既定要求
 - 正式战斗运行时不再全发完整 `stat_data`
 - AI 返回结果能稳定写回 MVU
-
-以下内容可以不阻塞第一版完成：
-- `14 调试与回显工具`
 
 以下任一情况出现，应判定为未完成或不可交付：
 - 不能稳定从当前消息楼层读到 `stat_data`
@@ -587,3 +593,5 @@
 - 完成战斗规则配置模块与字段分析调用层，并将“最近一步”推进到字段勾选树 UI
 - 完成字段勾选树 UI、`selected_data` 抽取器与 AI 请求层，并将“最近一步”推进到单回合战斗执行链
 - 完成单回合战斗执行链、快速整场执行链、战利品结算执行链与扁平路径写回层，并将“最近一步”推进到 `battle_session` 整合策略细化
+- 完成 `battle_session` 第一版整合与调试回显工具，并将“最近一步”推进到整体功能评估与人工测试前检查
+- 完成脚本侧独立战斗入口补齐，避免未加载状态栏时无法进入战斗浮窗

@@ -9,7 +9,7 @@ import {
   type BattleRoundResult,
   type BattleRuntimePayload,
 } from './ai-profile.ts';
-import { requestBattleChatCompletion } from './api-client.ts';
+import { BattleAiParseError, requestBattleChatCompletion } from './api-client.ts';
 
 const BattleSettlementDecisionSchema = z
   .object({
@@ -105,16 +105,19 @@ export type BattleRuntimeRequestOptions = {
 export type BattleRuntimeRoundExecution = {
   payload: BattleRuntimePayload;
   result: BattleRoundResult;
+  rawText: string;
 };
 
 export type BattleRuntimeFullExecution = {
   payload: BattleRuntimePayload;
   result: BattleFullResult;
+  rawText: string;
 };
 
 export type BattleRuntimeLootExecution = {
   payload: Record<string, unknown>;
   result: BattleLootResult;
+  rawText: string;
 };
 
 function buildSingleRoundSystemPrompt(): string {
@@ -212,7 +215,7 @@ export function buildBattleRuntimePayload(
   };
 }
 
-function buildLootPayload(
+export function buildBattleLootPayload(
   battleProfile: BattleProfile,
   selectedData: Record<string, unknown>,
   options: BattleRuntimeRequestOptions,
@@ -239,7 +242,7 @@ async function requestRuntimeJson<T>(
   payload: Record<string, unknown>,
   parser: z.ZodType<T>,
   debugConfig: BattleDebugConfig,
-): Promise<T> {
+): Promise<{ result: T; rawText: string }> {
   const completion = await requestBattleChatCompletion(
     apiProfile,
     [
@@ -259,14 +262,40 @@ async function requestRuntimeJson<T>(
   );
 
   try {
-    return parser.parse(parseString(completion.text), { reportInput: true });
+    return {
+      result: parser.parse(parseString(completion.text), { reportInput: true }),
+      rawText: completion.text,
+    };
   } catch (error) {
     if (!debugConfig.allow_retry_on_invalid_json) {
-      throw error;
+      throw new BattleAiParseError(
+        error instanceof Error ? `运行结果解析失败：${error.message}` : '运行结果解析失败',
+        {
+          rawText: completion.text,
+          responseData: completion.data,
+          payload,
+          cause: error,
+        },
+      );
     }
 
-    const repaired = parseString(completion.text);
-    return parser.parse(repaired, { reportInput: true });
+    try {
+      const repaired = parseString(completion.text);
+      return {
+        result: parser.parse(repaired, { reportInput: true }),
+        rawText: completion.text,
+      };
+    } catch (repairError) {
+      throw new BattleAiParseError(
+        repairError instanceof Error ? `运行结果解析失败：${repairError.message}` : '运行结果解析失败',
+        {
+          rawText: completion.text,
+          responseData: completion.data,
+          payload,
+          cause: repairError,
+        },
+      );
+    }
   }
 }
 
@@ -285,14 +314,14 @@ export async function requestBattleSingleRound(
     user: buildSingleRoundUserPrompt(),
     output: buildSingleRoundOutputPrompt(),
   });
-  const result = await requestRuntimeJson(
+  const execution = await requestRuntimeJson(
     apiProfile,
     prompt,
     payload,
     BattleRoundResultSchema,
     battleProfile.debug,
   );
-  return { payload, result };
+  return { payload, result: execution.result, rawText: execution.rawText };
 }
 
 export async function requestBattleFullBattle(
@@ -310,14 +339,14 @@ export async function requestBattleFullBattle(
     user: buildFullBattleUserPrompt(),
     output: buildFullBattleOutputPrompt(),
   });
-  const result = await requestRuntimeJson(
+  const execution = await requestRuntimeJson(
     apiProfile,
     prompt,
     payload,
     BattleFullResultSchema,
     battleProfile.debug,
   );
-  return { payload, result };
+  return { payload, result: execution.result, rawText: execution.rawText };
 }
 
 export async function requestBattleLootResolution(
@@ -326,18 +355,18 @@ export async function requestBattleLootResolution(
   selectedData: Record<string, unknown>,
   options: BattleRuntimeRequestOptions,
 ): Promise<BattleRuntimeLootExecution> {
-  const payload = buildLootPayload(battleProfile, selectedData, options);
+  const payload = buildBattleLootPayload(battleProfile, selectedData, options);
   const prompt = resolveRuntimePrompt(battleProfile.prompts.loot_resolution, {
     system: buildLootSystemPrompt(),
     user: buildLootUserPrompt(),
     output: buildLootOutputPrompt(),
   });
-  const result = await requestRuntimeJson(
+  const execution = await requestRuntimeJson(
     apiProfile,
     prompt,
     payload,
     BattleLootResultSchema,
     battleProfile.debug,
   );
-  return { payload, result };
+  return { payload, result: execution.result, rawText: execution.rawText };
 }

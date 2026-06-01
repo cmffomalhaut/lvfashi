@@ -35,6 +35,31 @@ export type BattleChatCompletionResult = {
   data: unknown;
 };
 
+export class BattleAiParseError extends Error {
+  readonly rawText: string;
+  readonly responseData: unknown;
+  readonly payload: Record<string, unknown> | null;
+
+  constructor(
+    message: string,
+    options: {
+      rawText: string;
+      responseData: unknown;
+      payload?: Record<string, unknown> | null;
+      cause?: unknown;
+    },
+  ) {
+    super(message);
+    this.name = 'BattleAiParseError';
+    this.rawText = options.rawText;
+    this.responseData = options.responseData;
+    this.payload = options.payload ?? null;
+    if (options.cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
 function trimTrailingSlash(value: string): string {
   return value.trim().replace(/\/+$/u, '');
 }

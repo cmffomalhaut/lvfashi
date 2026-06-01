@@ -9,7 +9,7 @@ import {
   type BattlePromptTemplate,
   type BattleSelectedField,
 } from './ai-profile.ts';
-import { requestBattleChatCompletion } from './api-client.ts';
+import { BattleAiParseError, requestBattleChatCompletion } from './api-client.ts';
 
 const BattleFieldSuggestionSchema = z
   .object({
@@ -30,6 +30,7 @@ export type BattleFieldAnalysisExecutionResult = {
   payload: BattleFieldAnalysisPayload;
   result: BattleFieldAnalysisResult;
   fieldSelection: BattleFieldSelectionConfig;
+  rawText: string;
 };
 
 function buildFieldAnalysisSystemPrompt(): string {
@@ -177,7 +178,20 @@ export async function analyzeBattleFields(
     },
   );
 
-  const parsed = BattleFieldAnalysisResultSchema.parse(parseString(completion.text), { reportInput: true });
+  let parsed: BattleFieldAnalysisResult;
+  try {
+    parsed = BattleFieldAnalysisResultSchema.parse(parseString(completion.text), { reportInput: true });
+  } catch (error) {
+    throw new BattleAiParseError(
+      error instanceof Error ? `字段分析结果解析失败：${error.message}` : '字段分析结果解析失败',
+      {
+        rawText: completion.text,
+        responseData: completion.data,
+        payload,
+        cause: error,
+      },
+    );
+  }
   const normalizedFields = normalizeFieldSuggestions(parsed.fields);
 
   return {
@@ -197,5 +211,6 @@ export async function analyzeBattleFields(
       last_analysis_at: Date.now(),
       manual_review_required: true,
     },
+    rawText: completion.text,
   };
 }

@@ -46,36 +46,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "default": {},
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "名称": {
-            "default": "未命名任务",
-            "type": "string"
-          },
-          "描述": {
-            "type": "string"
-          },
-          "目标": {
-            "type": "string"
-          },
-          "奖励": {
-            "type": "string"
-          },
-          "状态": {
-            "default": "未开始",
-            "type": "string",
-            "enum": [
-              "未开始",
-              "进行中",
-              "已完成",
-              "已失败"
-            ]
-          }
-        }
+        "$ref": "#/$defs/__schema4"
       }
     },
     "当前可见卡": {
@@ -85,7 +56,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema4"
+        "$ref": "#/$defs/__schema5"
       }
     },
     "battle_session": {
@@ -125,19 +96,19 @@
         },
         "phase": {
           "default": "idle",
-          "$ref": "#/$defs/__schema5"
-        },
-        "round": {
           "$ref": "#/$defs/__schema6"
         },
-        "player_check": {
+        "round": {
           "$ref": "#/$defs/__schema7"
         },
-        "shared_dark_pool": {
+        "player_check": {
           "$ref": "#/$defs/__schema8"
         },
-        "combatants": {
+        "shared_dark_pool": {
           "$ref": "#/$defs/__schema9"
+        },
+        "combatants": {
+          "$ref": "#/$defs/__schema10"
         },
         "prebattle_snapshot": {
           "default": {},
@@ -183,7 +154,7 @@
                 "$ref": "#/$defs/__schema3"
               }
             },
-            "当前可见卡": {
+            "任务": {
               "default": {},
               "type": "object",
               "propertyNames": {
@@ -192,11 +163,24 @@
               "additionalProperties": {
                 "$ref": "#/$defs/__schema4"
               }
+            },
+            "当前可见卡": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema5"
+              }
             }
           }
         },
         "pending_preview": {
-          "$ref": "#/$defs/__schema10"
+          "$ref": "#/$defs/__schema11"
+        },
+        "runtime": {
+          "$ref": "#/$defs/__schema12"
         },
         "round_checkpoint": {
           "default": {},
@@ -204,22 +188,25 @@
           "properties": {
             "phase": {
               "default": "idle",
-              "$ref": "#/$defs/__schema5"
-            },
-            "round": {
               "$ref": "#/$defs/__schema6"
             },
-            "player_check": {
+            "round": {
               "$ref": "#/$defs/__schema7"
             },
-            "shared_dark_pool": {
+            "player_check": {
               "$ref": "#/$defs/__schema8"
             },
-            "combatants": {
+            "shared_dark_pool": {
               "$ref": "#/$defs/__schema9"
             },
-            "pending_preview": {
+            "combatants": {
               "$ref": "#/$defs/__schema10"
+            },
+            "pending_preview": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "runtime": {
+              "$ref": "#/$defs/__schema12"
             }
           }
         },
@@ -557,6 +544,38 @@
           "type": "string"
         },
         "名称": {
+          "default": "未命名任务",
+          "type": "string"
+        },
+        "描述": {
+          "type": "string"
+        },
+        "目标": {
+          "type": "string"
+        },
+        "奖励": {
+          "type": "string"
+        },
+        "状态": {
+          "default": "未开始",
+          "type": "string",
+          "enum": [
+            "未开始",
+            "进行中",
+            "已完成",
+            "已失败"
+          ]
+        }
+      }
+    },
+    "__schema5": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "名称": {
           "default": "未命名卡牌",
           "type": "string"
         },
@@ -572,7 +591,7 @@
         }
       }
     },
-    "__schema5": {
+    "__schema6": {
       "type": "string",
       "enum": [
         "idle",
@@ -585,7 +604,7 @@
         "aborted"
       ]
     },
-    "__schema6": {
+    "__schema7": {
       "default": {},
       "type": "object",
       "properties": {
@@ -604,7 +623,7 @@
         }
       }
     },
-    "__schema7": {
+    "__schema8": {
       "default": {},
       "type": "object",
       "properties": {
@@ -622,7 +641,7 @@
         }
       }
     },
-    "__schema8": {
+    "__schema9": {
       "default": {},
       "type": "object",
       "properties": {
@@ -638,7 +657,7 @@
         }
       }
     },
-    "__schema9": {
+    "__schema10": {
       "default": {},
       "type": "object",
       "properties": {
@@ -664,7 +683,7 @@
         }
       }
     },
-    "__schema10": {
+    "__schema11": {
       "default": {},
       "type": "object",
       "properties": {
@@ -715,6 +734,98 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/__schema3"
+          }
+        }
+      }
+    },
+    "__schema12": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "last_result_type": {
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "round",
+            "full_battle",
+            "loot"
+          ]
+        },
+        "latest_summary": {
+          "type": "string"
+        },
+        "latest_narration": {
+          "type": "string"
+        },
+        "latest_battle_report": {
+          "type": "string"
+        },
+        "latest_battle_end": {
+          "type": "boolean"
+        },
+        "latest_battle_end_reason": {
+          "type": "string"
+        },
+        "latest_status_changes": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "latest_resource_changes": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "latest_warnings": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "accumulated_updates": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "settlement": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "mode": {
+              "default": "no_loot",
+              "type": "string",
+              "enum": [
+                "no_loot",
+                "direct_loot",
+                "checked_loot"
+              ]
+            },
+            "mvu_commit_ready": {
+              "type": "boolean"
+            },
+            "loot_ready": {
+              "type": "boolean"
+            },
+            "loot_context": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            "check_prompt_needed": {
+              "type": "boolean"
+            }
           }
         }
       }

@@ -386,6 +386,7 @@
           <button class="btn btn--primary" :disabled="isFieldAnalysisBusy || isApiBusy" @click="runFieldAnalysis">
             {{ isFieldAnalysisBusy ? '分析中...' : '分析当前楼层字段' }}
           </button>
+          <button class="btn" :disabled="isFieldAnalysisBusy" @click="retryFieldAnalysis">重试上一次分析</button>
         </div>
       </div>
 
@@ -423,6 +424,10 @@
           <div v-if="lastFieldAnalysisPayload" class="preview-block">
             <h3>最近一次分析载荷</h3>
             <pre class="json-preview">{{ formatJson(lastFieldAnalysisPayload) }}</pre>
+          </div>
+          <div v-if="lastFieldAnalysisRawText" class="preview-block">
+            <h3>最近一次分析原始文本</h3>
+            <pre class="json-preview">{{ lastFieldAnalysisRawText }}</pre>
           </div>
         </article>
 
@@ -580,6 +585,7 @@
           </button>
           <button class="btn" :disabled="isRuntimeRequestBusy || !enabledFieldCount" @click="sendFullBattle">发送整场请求</button>
           <button class="btn" :disabled="isRuntimeRequestBusy || !enabledFieldCount" @click="sendLootResolution">发送战利品请求</button>
+          <button class="btn btn--ghost" :disabled="isRuntimeRequestBusy" @click="retryRuntimeRequest">重试上一次正式请求</button>
         </div>
       </div>
 
@@ -628,6 +634,10 @@
           <div class="preview-block">
             <h3>最近一次解析结果</h3>
             <pre class="json-preview">{{ formatJson(lastRuntimeResult) }}</pre>
+          </div>
+          <div v-if="lastRuntimeRawText" class="preview-block">
+            <h3>最近一次原始文本</h3>
+            <pre class="json-preview">{{ lastRuntimeRawText }}</pre>
           </div>
         </article>
       </div>
@@ -889,10 +899,12 @@ const {
   lastFieldAnalysisMessage,
   lastFieldAnalysisError,
   lastFieldAnalysisPayload,
+  lastFieldAnalysisRawText,
   lastRuntimeRequestMessage,
   lastRuntimeRequestError,
   lastRuntimePayload,
   lastRuntimeResult,
+  lastRuntimeRawText,
   roundCheckpointDirty,
   sourceMessageId,
 } = storeToRefs(store);
@@ -1134,6 +1146,9 @@ const runFieldAnalysis = async () => {
   }
   await store.runBattleFieldAnalysis(battleProfileDraft.value);
 };
+const retryFieldAnalysis = async () => {
+  await store.retryLastFieldAnalysis();
+};
 const patchFieldSelectionDraft = (fields: BattleProfile['field_selection']['selected_fields']) => {
   if (!battleProfileDraft.value) {
     return;
@@ -1251,6 +1266,9 @@ const sendLootResolution = async () => {
   await runRuntimeRequest(() =>
     store.sendLootResolutionRequest(battleProfileDraft.value!, selectedDataPreview.value, options),
   );
+};
+const retryRuntimeRequest = async () => {
+  await runRuntimeRequest(() => store.retryLastRuntimeRequest());
 };
 const exportPromptConfig = () => {
   if (!battleProfileDraft.value) {
