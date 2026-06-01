@@ -12,6 +12,29 @@ export type BattleModelDiscoveryResult = {
   status: number;
 };
 
+export type BattleChatMessageRole = 'system' | 'user' | 'assistant';
+
+export type BattleChatMessage = {
+  role: BattleChatMessageRole;
+  content: string;
+};
+
+export type BattleChatCompletionOptions = {
+  responseFormat?: 'json_object';
+  maxTokens?: number | null;
+  temperature?: number | null;
+  topP?: number | null;
+  timeoutMs?: number;
+  retryLimit?: number;
+  extraBody?: Record<string, unknown>;
+};
+
+export type BattleChatCompletionResult = {
+  status: number;
+  text: string;
+  data: unknown;
+};
+
 function trimTrailingSlash(value: string): string {
   return value.trim().replace(/\/+$/u, '');
 }
@@ -72,6 +95,25 @@ export function createBattleApiHeaders(
   return headers;
 }
 
+function shouldRetryBattleRequest(status: number | undefined, message: string): boolean {
+  if (status !== undefined) {
+    return [408, 409, 425, 429, 500, 502, 503, 504].includes(status);
+  }
+
+  const normalizedMessage = message.toLowerCase();
+  return (
+    normalizedMessage.includes('timeout') ||
+    normalizedMessage.includes('network error') ||
+    normalizedMessage.includes('fetch failed') ||
+    normalizedMessage.includes('socket hang up')
+  );
+}
+
+async function waitForBattleRetry(attempt: number): Promise<void> {
+  const delayMs = 500 * 2 ** attempt;
+  await new Promise(resolve => setTimeout(resolve, delayMs));
+}
+
 function extractModelIds(payload: unknown, responsePath: string): string[] {
   const bucket = responsePath.trim() ? _.get(payload, responsePath.trim(), payload) : payload;
   if (!Array.isArray(bucket)) {
@@ -94,6 +136,33 @@ function extractModelIds(payload: unknown, responsePath: string): string[] {
     .filter(value => value.length > 0)
     .uniq()
     .value();
+}
+
+function extractBattleAssistantText(payload: unknown): string {
+  const directContent = _.get(payload, 'choices[0].message.content');
+  if (typeof directContent === 'string') {
+    return directContent.trim();
+  }
+
+  if (Array.isArray(directContent)) {
+    return directContent
+      .flatMap(entry => {
+        if (typeof entry === 'string') {
+          return [entry];
+        }
+        if (_.isPlainObject(entry)) {
+          const text = _.get(entry, 'text');
+          const content = _.get(entry, 'content');
+          return [typeof text === 'string' ? text : '', typeof content === 'string' ? content : ''];
+        }
+        return [];
+      })
+      .filter(value => value.length > 0)
+      .join('\n')
+      .trim();
+  }
+
+  return '';
 }
 
 export async function fetchBattleApiModels(
@@ -134,6 +203,88 @@ function buildConnectionTestPayload(profile: BattleApiProfile) {
   }
 
   return body;
+}
+
+export async function requestBattleChatCompletion(
+  profile: BattleApiProfile,
+  messages: BattleChatMessage[],
+  options: BattleChatCompletionOptions = {},
+  requestImpl: BattleApiRequest = axios.request,
+): Promise<BattleChatCompletionResult> {
+  if (!profile.base_url.trim()) {
+    throw new Error('缺少 base_url');
+  }
+
+  if (!profile.model.trim()) {
+    throw new Error('缺少 model');
+  }
+
+  const timeoutMs = options.timeoutMs ?? profile.default_request_options.timeout_ms;
+  const retryLimit = options.retryLimit ?? profile.default_request_options.retry_limit;
+
+  for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
+    try {
+      const body: Record<string, unknown> = {
+        model: profile.model.trim(),
+        messages,
+        stream: false,
+        ...options.extraBody,
+      };
+
+      const maxTokens = options.maxTokens ?? profile.default_request_options.max_tokens;
+      if (maxTokens !== null && maxTokens !== undefined) {
+        body.max_tokens = maxTokens;
+      }
+
+      const temperature = options.temperature ?? profile.default_request_options.temperature;
+      if (temperature !== null && temperature !== undefined) {
+        body.temperature = temperature;
+      }
+
+      const topP = options.topP ?? profile.default_request_options.top_p;
+      if (topP !== null && topP !== undefined) {
+        body.top_p = topP;
+      }
+
+      if (options.responseFormat === 'json_object') {
+        body.response_format = { type: 'json_object' };
+      }
+
+      const response = await requestImpl({
+        method: 'POST',
+        url: resolveBattleApiUrl(profile.base_url, '/chat/completions'),
+        timeout: timeoutMs,
+        headers: createBattleApiHeaders(profile),
+        data: body,
+      });
+
+      const text = extractBattleAssistantText(response.data);
+      if (!text) {
+        throw new Error('接口返回成功，但未解析到 assistant 文本');
+      }
+
+      return {
+        status: response.status,
+        text,
+        data: response.data,
+      };
+    } catch (error) {
+      const axiosError = axios.isAxiosError(error) ? error : null;
+      const status = axiosError?.response?.status;
+      const message =
+        axiosError?.response?.data && typeof axiosError.response.data === 'object'
+          ? JSON.stringify(axiosError.response.data)
+          : axiosError?.message ?? (error instanceof Error ? error.message : String(error));
+
+      if (!shouldRetryBattleRequest(status, message) || attempt >= retryLimit) {
+        throw new Error(status ? `请求失败（HTTP ${status}）：${message}` : `请求失败：${message}`);
+      }
+
+      await waitForBattleRetry(attempt);
+    }
+  }
+
+  throw new Error('请求失败：超过最大重试次数');
 }
 
 export async function testBattleApiConnection(

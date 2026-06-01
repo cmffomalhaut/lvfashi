@@ -44,7 +44,9 @@
 - 已完成设置存取层的正式编码
 - 已完成 API 配置模块的正式编码
 - 已完成 Prompt 配置模块的正式编码
-- 战斗规则配置模块、请求层、字段树、写回层仍未开始
+- 已完成战斗规则配置模块的正式编码
+- 已完成字段分析调用层的正式编码
+- 字段勾选树、`selected_data` 抽取器、正式 AI 请求层、写回层仍未开始
 
 ---
 
@@ -316,38 +318,52 @@
 - 参考项目对照后已顺手补齐一项 API 层兼容性修正：
   - `api-client.ts` 现已兼容 `base_url` 填写为 `.../v1`、`.../chat/completions`、`.../v1/models` 等常见形式，避免拼接出错误路径
 
+### 3.11 战斗规则配置模块已落地
+
+- 已补齐：
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的战斗规则编辑区
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的战斗配置持久化复用
+  - [global.css](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/global.css) 的规则配置区样式
+
+- 当前战斗规则配置模块已实现：
+  - `run_mode / default_turn_mode / settlement_mode` 的编辑入口
+  - `battle_protocol / loot_protocol / extra_world_rules` 的编辑入口
+  - `allow_full_stat_data_in_analysis / forbid_full_stat_data_in_runtime / schema_hint_enabled` 的编辑入口
+  - 保持 `player_intent_priority = high` 的固定边界展示
+
+- 当前边界：
+  - 只完成配置层编辑，不包含后续运行时 UI 分支切换逻辑
+  - `freeform` 隐藏投骰子与暗骰模块的真正界面切换，留待正式运行链路阶段接入
+
+### 3.12 字段分析调用层已落地
+
+- 已新增：
+  - [field-analysis.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/field-analysis.ts)
+
+- 已补齐：
+  - [api-client.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/api-client.ts) 的最小可复用聊天请求入口
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的字段分析状态与执行入口
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的字段分析调用与结果展示
+
+- 当前字段分析调用层已实现：
+  - 从当前消息楼层 `stat_data` 读取主状态投影作为分析输入
+  - 组装 `BattleFieldAnalysisPayload`
+  - 读取当前战斗配置里的 `field_analysis` prompt 并请求当前绑定 API
+  - 解析结构化 `fields[] / warnings[]`
+  - 将分析结果写回当前 `BattleProfile.field_selection`
+  - 对 AI 返回路径做基础归一化：
+    - 去掉 `stat_data.` 前缀
+    - 去重
+    - 空 label 自动回退到路径末段
+
+- 当前边界：
+  - `worldbook_context` 仍先留空，未接世界书增强
+  - 只完成“调用 + 保存 + 展示建议结果”，完整路径树浏览和人工补选留到下一阶段
+  - 当前只走 OpenAI 兼容聊天请求，不含更多厂商特化协议
+
 ---
 
 ## 4. 待实现
-
-### 4.4 战斗规则配置模块
-
-状态：
-- 未开始
-
-目标：
-- 配置战斗协议
-- 配置战利品规则
-- 配置额外世界规则
-- 配置运行模式和结算模式
-
-完成标准：
-- `BattleProfile.rules` 可完整编辑并持久化
-
-### 4.5 字段分析调用层
-
-状态：
-- 未开始
-
-目标：
-- 从当前消息楼层读取完整 `stat_data`
-- 组装字段分析 payload
-- 调 AI 获取字段建议
-
-完成标准：
-- 能拿到结构化 `fields[]`
-- 能保留 `warnings[]`
-- 能把结果写入 `field_selection`
 
 ### 4.6 字段勾选树 UI
 
@@ -491,17 +507,15 @@
 
 按依赖关系，建议执行顺序如下：
 
-1. 战斗规则配置模块
-2. 字段分析调用层
-3. 字段勾选树 UI
-4. `selected_data` 抽取器
-5. AI 请求层
-6. 单回合战斗执行链
-7. 快速整场执行链
-8. 战利品结算执行链
-9. 扁平路径更新校验与 MVU 写回层
-10. 与现有 `battle_session` 的整合
-11. 调试与回显工具
+1. 字段勾选树 UI
+2. `selected_data` 抽取器
+3. AI 请求层
+4. 单回合战斗执行链
+5. 快速整场执行链
+6. 战利品结算执行链
+7. 扁平路径更新校验与 MVU 写回层
+8. 与现有 `battle_session` 的整合
+9. 调试与回显工具
 
 ---
 
@@ -509,15 +523,15 @@
 
 最近一步建议固定为：
 
-1. 先实现战斗规则配置模块
+1. 先实现字段勾选树 UI
 
 原因：
-- Prompt 配置模块已经具备基础可用性
-- 下一步应把运行模式、结算模式和战斗协议编辑接到已完成的战斗配置层上
+- 字段分析调用层已经能写入 `field_selection`
+- 下一步必须给玩家完整路径树浏览和人工补选入口，才能满足配置期核心可用性要求
 
 做完这一步后，下一步应切到：
 
-2. 字段分析调用层
+2. `selected_data` 抽取器
 
 ---
 
@@ -559,3 +573,4 @@
 - 完成 `BattleFrontendSettings` 存取层，并将“最近一步”推进到 API 配置模块
 - 完成 API 配置模块，并将“最近一步”推进到 Prompt 配置模块
 - 完成 Prompt 配置模块，并将“最近一步”推进到战斗规则配置模块
+- 完成战斗规则配置模块与字段分析调用层，并将“最近一步”推进到字段勾选树 UI

@@ -333,6 +333,77 @@ body {
   cursor: pointer;
 }
 
+.state-list,
+.check-stack,
+.analysis-result-list {
+  display: grid;
+  gap: 10px;
+}
+
+.state-list__item,
+.analysis-result-item {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.56);
+  padding: 10px 12px;
+}
+
+.state-list__item {
+  display: grid;
+  gap: 4px;
+}
+
+.state-list__item strong,
+.analysis-result-head strong {
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.state-list__item span,
+.analysis-result-item span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.analysis-result-item {
+  display: grid;
+  gap: 6px;
+}
+
+.analysis-result-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.analysis-result-head code {
+  color: #93c5fd;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.analysis-result-item p {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.json-preview {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.92);
+  color: #cbd5e1;
+  font-family: 'Consolas', 'Microsoft YaHei UI', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 900px) {
   .settings-grid,
   .summary-grid,

@@ -5,10 +5,13 @@ import {
   createDefaultBattleApiProfile,
   createDefaultBattleProfile,
   type BattleApiProfile,
+  type BattleFieldAnalysisPayload,
+  type BattleFieldAnalysisResult,
   type BattleProfile,
   type BattleFrontendSettings,
 } from '../../脚本/战斗/ai-profile.ts';
 import { fetchBattleApiModels, testBattleApiConnection } from '../../脚本/战斗/api-client.ts';
+import { analyzeBattleFields } from '../../脚本/战斗/field-analysis.ts';
 import { battleFrontendSettingsAccess } from '../../脚本/战斗/frontend-settings.ts';
 import { battleSessionController } from '../../脚本/战斗/session.ts';
 
@@ -22,9 +25,14 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const discoveredModels = ref<Record<string, string[]>>({});
   const isResolving = ref(false);
   const isApiBusy = ref(false);
+  const isFieldAnalysisBusy = ref(false);
   const lastResolveError = ref('');
   const lastApiMessage = ref('');
   const lastApiError = ref('');
+  const lastFieldAnalysisMessage = ref('');
+  const lastFieldAnalysisError = ref('');
+  const lastFieldAnalysisPayload = ref<BattleFieldAnalysisPayload | null>(null);
+  const lastFieldAnalysisResult = ref<BattleFieldAnalysisResult | null>(null);
 
   const refresh = () => {
     canonicalState.value = stateAccess.readCanonicalState();
@@ -87,6 +95,21 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     }
   };
 
+  const runFieldAnalysisAction = async <T>(action: () => Promise<T>) => {
+    isFieldAnalysisBusy.value = true;
+    lastFieldAnalysisMessage.value = '';
+    lastFieldAnalysisError.value = '';
+
+    try {
+      return await action();
+    } catch (error) {
+      lastFieldAnalysisError.value = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      isFieldAnalysisBusy.value = false;
+    }
+  };
+
   const createApiProfile = async () => {
     settings.value = await battleFrontendSettingsAccess.upsertApiProfile(createDefaultBattleApiProfile(), {
       makeActive: true,
@@ -127,6 +150,20 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     settings.value = await battleFrontendSettingsAccess.setActiveBattleProfile(profileId);
   };
 
+  const resolveBattleApiProfileForAnalysis = (profile: BattleProfile): BattleApiProfile => {
+    const targetId = profile.api_profile_id || settings.value.active_api_profile_id;
+    const resolved =
+      settings.value.api_profiles.find(item => item.id === targetId) ??
+      settings.value.api_profiles.find(item => item.id === settings.value.active_api_profile_id) ??
+      settings.value.api_profiles[0];
+
+    if (!resolved) {
+      throw new Error('当前没有可用的 API 配置');
+    }
+
+    return resolved;
+  };
+
   const discoverApiModels = async (profile: BattleApiProfile) =>
     runApiAction(async () => {
       const result = await fetchBattleApiModels(profile);
@@ -156,6 +193,25 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
         lastApiError.value = testResult.message;
       }
       return testResult;
+    });
+
+  const runBattleFieldAnalysis = async (profile: BattleProfile) =>
+    runFieldAnalysisAction(async () => {
+      const apiProfile = resolveBattleApiProfileForAnalysis(profile);
+      const analysis = await analyzeBattleFields(apiProfile, profile, mainState.value as Record<string, unknown>);
+      lastFieldAnalysisPayload.value = analysis.payload;
+      lastFieldAnalysisResult.value = analysis.result;
+      settings.value = await battleFrontendSettingsAccess.upsertBattleProfile(
+        {
+          ...profile,
+          field_selection: analysis.fieldSelection,
+        },
+        { makeActive: settings.value.active_battle_profile_id === profile.id },
+      );
+      lastFieldAnalysisMessage.value = analysis.result.fields.length
+        ? `字段分析完成，已生成 ${analysis.result.fields.length} 条建议`
+        : '字段分析完成，但 AI 没有返回有效字段建议';
+      return analysis.result;
     });
 
   const startBattle = () => runAndRefresh(() => battleSessionController.startBattle(sourceMessageId.value));
@@ -224,9 +280,14 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     roundCheckpointDirty,
     isResolving,
     isApiBusy,
+    isFieldAnalysisBusy,
     lastResolveError,
     lastApiMessage,
     lastApiError,
+    lastFieldAnalysisMessage,
+    lastFieldAnalysisError,
+    lastFieldAnalysisPayload,
+    lastFieldAnalysisResult,
     refresh,
     refreshSettings,
     createApiProfile,
@@ -239,6 +300,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     setActiveBattleProfile,
     discoverApiModels,
     testApiProfile,
+    runBattleFieldAnalysis,
     startBattle,
     resumeOrRebuild,
     forceRebuild,

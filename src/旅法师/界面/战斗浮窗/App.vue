@@ -266,6 +266,182 @@
       </div>
     </section>
 
+    <section v-if="battleProfileDraft" class="card">
+      <div class="section-head">
+        <div>
+          <h2>战斗规则配置</h2>
+          <p class="hint">这一层只编辑 `BattleProfile` 的运行模式、结算模式和规则文本，不改 `battle_session` 事务态。</p>
+        </div>
+        <div class="button-grid">
+          <button class="btn btn--primary" :disabled="isApiBusy || isFieldAnalysisBusy" @click="saveBattleProfileDraft">
+            保存规则与 Prompt
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <article class="settings-panel">
+          <div class="form-grid">
+            <label class="form-field">
+              <span>run_mode</span>
+              <select v-model="battleProfileDraft.run_mode" class="form-control">
+                <option value="dice_driven">dice_driven</option>
+                <option value="freeform">freeform</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>default_turn_mode</span>
+              <select v-model="battleProfileDraft.default_turn_mode" class="form-control">
+                <option value="round_based">round_based</option>
+                <option value="full_battle">full_battle</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>settlement_mode</span>
+              <select v-model="battleProfileDraft.settlement_mode" class="form-control">
+                <option value="no_loot">no_loot</option>
+                <option value="direct_loot">direct_loot</option>
+                <option value="checked_loot">checked_loot</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>player_intent_priority</span>
+              <input :value="battleProfileDraft.rules.player_intent_priority" class="form-control" type="text" disabled />
+            </label>
+            <label class="form-field form-field--wide">
+              <span>battle_protocol</span>
+              <textarea
+                v-model="battleProfileDraft.rules.battle_protocol"
+                class="form-control form-control--textarea form-control--code"
+                rows="8"
+                placeholder="填写战斗协议、单位行动限制、资源消耗规则、玩家意图优先级等"
+              ></textarea>
+            </label>
+            <label class="form-field form-field--wide">
+              <span>loot_protocol</span>
+              <textarea
+                v-model="battleProfileDraft.rules.loot_protocol"
+                class="form-control form-control--textarea form-control--code"
+                rows="6"
+                placeholder="填写掉落结算、搜刮/鉴定/拆解检定等规则"
+              ></textarea>
+            </label>
+            <label class="form-field form-field--wide">
+              <span>extra_world_rules</span>
+              <textarea
+                v-model="battleProfileDraft.rules.extra_world_rules"
+                class="form-control form-control--textarea form-control--code"
+                rows="5"
+                placeholder="填写项目特有世界规则、宿主约束或额外补充裁定"
+              ></textarea>
+            </label>
+          </div>
+        </article>
+
+        <article class="settings-panel">
+          <div class="state-list">
+            <div class="state-list__item">
+              <strong>模式提醒</strong>
+              <span>`freeform` 下后续要隐藏投骰子和暗骰模块；`dice_driven` 下重新启用。</span>
+            </div>
+            <div class="state-list__item">
+              <strong>当前运行模式</strong>
+              <span>{{ battleProfileDraft.run_mode }}</span>
+            </div>
+            <div class="state-list__item">
+              <strong>默认回合模式</strong>
+              <span>{{ battleProfileDraft.default_turn_mode }}</span>
+            </div>
+            <div class="state-list__item">
+              <strong>当前结算模式</strong>
+              <span>{{ battleProfileDraft.settlement_mode }}</span>
+            </div>
+          </div>
+
+          <div class="check-stack">
+            <label class="check-field">
+              <input v-model="battleProfileDraft.rules.allow_full_stat_data_in_analysis" type="checkbox" />
+              <span>字段分析阶段允许发送完整 stat_data</span>
+            </label>
+            <label class="check-field">
+              <input v-model="battleProfileDraft.rules.forbid_full_stat_data_in_runtime" type="checkbox" />
+              <span>正式运行阶段禁止发送完整 stat_data</span>
+            </label>
+            <label class="check-field">
+              <input v-model="battleProfileDraft.rules.schema_hint_enabled" type="checkbox" />
+              <span>允许后续使用 schema hint 作为额外辅助</span>
+            </label>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="battleProfileDraft" class="card">
+      <div class="section-head">
+        <div>
+          <h2>字段分析调用层</h2>
+          <p class="hint">当前阶段只打通“读取当前楼层 stat_data -> 调 AI -> 回写 `field_selection`”这条链路。</p>
+        </div>
+        <div class="button-grid">
+          <button class="btn btn--primary" :disabled="isFieldAnalysisBusy || isApiBusy" @click="runFieldAnalysis">
+            {{ isFieldAnalysisBusy ? '分析中...' : '分析当前楼层字段' }}
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <article class="settings-panel">
+          <div class="state-list">
+            <div class="state-list__item">
+              <strong>来源楼层</strong>
+              <span>{{ sourceMessageId }}</span>
+            </div>
+            <div class="state-list__item">
+              <strong>建议字段数</strong>
+              <span>{{ analyzedFields.length }}</span>
+            </div>
+            <div class="state-list__item">
+              <strong>上次分析时间</strong>
+              <span>{{ formatTimestamp(battleProfileDraft.field_selection.last_analysis_at ?? 0) }}</span>
+            </div>
+            <div class="state-list__item">
+              <strong>待人工复核</strong>
+              <span>{{ battleProfileDraft.field_selection.manual_review_required ? '是' : '否' }}</span>
+            </div>
+          </div>
+
+          <p v-if="lastFieldAnalysisMessage" class="hint hint--ok">{{ lastFieldAnalysisMessage }}</p>
+          <p v-if="lastFieldAnalysisError" class="hint hint--error">{{ lastFieldAnalysisError }}</p>
+
+          <div v-if="analysisWarnings.length" class="preview-block">
+            <h3>分析警告</h3>
+            <ul class="info-list">
+              <li v-for="warning in analysisWarnings" :key="warning">{{ warning }}</li>
+            </ul>
+          </div>
+
+          <div v-if="lastFieldAnalysisPayload" class="preview-block">
+            <h3>最近一次分析载荷</h3>
+            <pre class="json-preview">{{ formatJson(lastFieldAnalysisPayload) }}</pre>
+          </div>
+        </article>
+
+        <article class="settings-panel">
+          <div v-if="analyzedFields.length" class="analysis-result-list">
+            <div v-for="field in analyzedFields" :key="field.path" class="analysis-result-item">
+              <div class="analysis-result-head">
+                <strong>{{ field.label || field.path }}</strong>
+                <code>{{ field.path }}</code>
+              </div>
+              <p>{{ field.reason || '无额外说明' }}</p>
+              <span>{{ field.enabled ? '已启用' : '已禁用' }} · 来源 {{ field.source }}</span>
+            </div>
+          </div>
+          <p v-else class="hint">还没有字段分析结果。运行后会把 AI 返回的 `fields[]` 和 `warnings[]` 写进当前战斗配置。</p>
+        </article>
+      </div>
+    </section>
+
     <section class="summary-grid">
       <article class="card">
         <h2>会话状态</h2>
@@ -439,9 +615,13 @@ const {
   enemyCount,
   isResolving,
   isApiBusy,
+  isFieldAnalysisBusy,
   lastResolveError,
   lastApiMessage,
   lastApiError,
+  lastFieldAnalysisMessage,
+  lastFieldAnalysisError,
+  lastFieldAnalysisPayload,
   roundCheckpointDirty,
   sourceMessageId,
 } = storeToRefs(store);
@@ -463,6 +643,8 @@ const promptTemplateOptions: Array<{ key: BattlePromptTemplateKey; label: string
   { key: 'full_battle', label: '快速整场战斗' },
   { key: 'loot_resolution', label: '战利品结算' },
 ];
+const analyzedFields = computed(() => battleProfileDraft.value?.field_selection.selected_fields ?? []);
+const analysisWarnings = computed(() => battleProfileDraft.value?.field_selection.analysis_warnings ?? []);
 const activePromptTemplate = computed<BattlePromptTemplate | null>(() => {
   if (!battleProfileDraft.value) {
     return null;
@@ -608,6 +790,12 @@ const testCurrentApiProfile = async () => {
   }
   await store.testApiProfile(apiProfileDraft.value);
 };
+const runFieldAnalysis = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  await store.runBattleFieldAnalysis(battleProfileDraft.value);
+};
 const exportPromptConfig = () => {
   if (!battleProfileDraft.value) {
     return;
@@ -678,4 +866,5 @@ const formatTimestamp = (timestamp: number) => {
   }
   return new Date(timestamp).toLocaleString();
 };
+const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
 </script>
