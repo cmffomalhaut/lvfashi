@@ -572,7 +572,7 @@
       <div class="section-head">
         <div>
           <h2>AI 请求层</h2>
-          <p class="hint">这里仅验证“正式运行请求能发送并拿到结构化结果”，不接现有 `battle_session` 状态机。</p>
+          <p class="hint">这里保留手动实验入口；下面“玩家检定 / 回合预览”区域已经开始接入正式执行链。</p>
         </div>
         <div class="button-grid">
           <button class="btn btn--primary" :disabled="isRuntimeRequestBusy || !enabledFieldCount" @click="sendSingleRound">
@@ -645,7 +645,7 @@
           <div><dt>round</dt><dd>{{ battleSession.round.round_no }}</dd></div>
           <div><dt>acting_side</dt><dd>{{ battleSession.round.acting_side }}</dd></div>
           <div><dt>checkpoint</dt><dd>{{ roundCheckpointDirty ? '有未提交回合状态' : '回合已落点' }}</dd></div>
-          <div><dt>AI 结算</dt><dd>{{ isResolving ? '进行中' : '空闲' }}</dd></div>
+          <div><dt>AI 结算</dt><dd>{{ isResolving || isRuntimeRequestBusy ? '进行中' : '空闲' }}</dd></div>
         </dl>
       </article>
 
@@ -665,44 +665,57 @@
       <article class="card">
         <h2>玩家检定</h2>
         <dl>
-          <div><dt>roll</dt><dd>{{ battleSession.player_check.roll }}</dd></div>
-          <div><dt>reroll_used</dt><dd>{{ battleSession.player_check.reroll_used }}/3</dd></div>
+          <div><dt>run_mode</dt><dd>{{ battleProfileDraft?.run_mode || '未配置' }}</dd></div>
+          <div><dt>turn_mode</dt><dd>{{ battleProfileDraft?.default_turn_mode || '未配置' }}</dd></div>
+          <div v-if="!isFreeformRuntime"><dt>roll</dt><dd>{{ battleSession.player_check.roll }}</dd></div>
+          <div v-if="!isFreeformRuntime"><dt>reroll_used</dt><dd>{{ battleSession.player_check.reroll_used }}/3</dd></div>
           <div><dt>confirmed</dt><dd>{{ battleSession.player_check.confirmed ? '是' : '否' }}</dd></div>
         </dl>
+        <p v-if="isFreeformRuntime" class="hint">当前为 `freeform`，已隐藏明骰/暗骰操作，正式执行时仅发送玩家指令与选中字段。</p>
         <textarea v-model="strategyDraft" class="strategy-box" placeholder="输入本回合策略"></textarea>
         <div class="button-grid">
           <button class="btn" @click="saveStrategy">保存策略</button>
           <button
+            v-if="!isFreeformRuntime"
             class="btn"
-            :disabled="isResolving || battleSession.player_check.confirmed || battleSession.player_check.reroll_used >= 3"
+            :disabled="isResolving || isRuntimeRequestBusy || battleSession.player_check.confirmed || battleSession.player_check.reroll_used >= 3"
             @click="reroll"
           >
             重掷明骰
           </button>
-          <button class="btn btn--primary" :disabled="isResolving || battleSession.player_check.confirmed" @click="confirm">
-            确认并请求 AI 预览
+          <button
+            class="btn btn--primary"
+            :disabled="isResolving || isRuntimeRequestBusy || battleSession.player_check.confirmed"
+            @click="confirm"
+          >
+            {{ executionButtonLabel }}
           </button>
-          <button class="btn" :disabled="isResolving || !battleSession.player_check.confirmed" @click="resolveAgain">
-            重新结算
+          <button class="btn" :disabled="isResolving || isRuntimeRequestBusy || !battleSession.player_check.confirmed" @click="resolveAgain">
+            {{ rerunButtonLabel }}
           </button>
-          <button class="btn btn--ghost" :disabled="isResolving" @click="useMockPreview">使用本地预览兜底</button>
+          <button class="btn btn--ghost" :disabled="isResolving || isRuntimeRequestBusy" @click="useMockPreview">使用本地预览兜底</button>
         </div>
         <p v-if="lastResolveError" class="hint hint--error">AI 结算失败：{{ lastResolveError }}</p>
+        <p v-if="lastRuntimeRequestError" class="hint hint--error">正式执行失败：{{ lastRuntimeRequestError }}</p>
       </article>
 
       <article class="card">
         <h2>回合预览</h2>
         <p>{{ battleSession.pending_preview.summary || '等待确认后生成预览。' }}</p>
+        <p v-if="battleSession.runtime.latest_narration" class="hint">{{ battleSession.runtime.latest_narration }}</p>
         <div class="button-grid">
           <button
             class="btn btn--primary"
-            :disabled="isResolving || !battleSession.pending_preview.summary"
+            :disabled="isResolving || isRuntimeRequestBusy || battleSession.phase === 'finished' || !battleSession.pending_preview.summary"
             @click="applyPreview"
           >
             提交到下一回合
           </button>
-          <button class="btn btn--warn" :disabled="!battleSession.pending_preview.summary" @click="finishBattle">
+          <button class="btn btn--warn" :disabled="isRuntimeRequestBusy || !battleSession.pending_preview.summary" @click="finishBattle">
             标记终局
+          </button>
+          <button v-if="canResolveLoot" class="btn" :disabled="isRuntimeRequestBusy" @click="resolveLoot">
+            处理战利品结算
           </button>
         </div>
         <dl>
@@ -712,7 +725,48 @@
           <div><dt>dark_pool_cursor</dt><dd>{{ battleSession.shared_dark_pool.cursor }}</dd></div>
           <div><dt>world_events</dt><dd>{{ Object.keys(battleSession.pending_preview.proposed_world_events).length }}</dd></div>
           <div><dt>loot</dt><dd>{{ Object.keys(battleSession.pending_preview.proposed_loot).length }}</dd></div>
+          <div><dt>battle_end</dt><dd>{{ battleSession.runtime.latest_battle_end ? '是' : '否' }}</dd></div>
+          <div><dt>settlement</dt><dd>{{ currentSettlementText }}</dd></div>
+          <div><dt>updates</dt><dd>{{ accumulatedUpdateCount }}</dd></div>
         </dl>
+        <div v-if="battleSession.runtime.latest_status_changes.length" class="preview-block">
+          <h3>状态变化</h3>
+          <ul class="info-list">
+            <li v-for="item in battleSession.runtime.latest_status_changes" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+        <div v-if="battleSession.runtime.latest_resource_changes.length" class="preview-block">
+          <h3>资源变化</h3>
+          <ul class="info-list">
+            <li v-for="item in battleSession.runtime.latest_resource_changes" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+        <div v-if="battleSession.runtime.latest_warnings.length" class="preview-block">
+          <h3>执行警告</h3>
+          <ul class="info-list">
+            <li v-for="item in battleSession.runtime.latest_warnings" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+        <p v-if="battleSession.phase === 'finished' && battleProfileDraft?.settlement_mode === 'no_loot'" class="hint">
+          当前为 `no_loot`，战斗结束后不会进入掉落流程。
+        </p>
+        <p v-if="battleSession.phase === 'finished' && battleProfileDraft?.settlement_mode === 'checked_loot'" class="hint">
+          当前为 `checked_loot`，需要额外点击“处理战利品结算”后才会生成掉落草案。
+        </p>
+        <div v-if="accumulatedUpdateCount" class="preview-block">
+          <h3>累计待写回更新</h3>
+          <pre class="json-preview">{{ formatJson(battleSession.runtime.accumulated_updates) }}</pre>
+        </div>
+        <div v-if="latestFullBattleResult" class="preview-block">
+          <h3>整场回合摘要</h3>
+          <ul class="info-list">
+            <li v-for="round in latestFullBattleResult.rounds" :key="round.round_index">
+              <strong>第{{ round.round_index }}回合</strong>
+              <span>{{ round.summary || round.narration || '无摘要' }}</span>
+            </li>
+          </ul>
+          <p class="hint">{{ latestFullBattleResult.battle_report }}</p>
+        </div>
         <div v-if="Object.keys(battleSession.pending_preview.proposed_world_events).length" class="preview-block">
           <h3>近期事务草案</h3>
           <ul class="info-list">
@@ -728,6 +782,15 @@
             <li v-for="loot in Object.values(battleSession.pending_preview.proposed_loot)" :key="loot.id">
               <strong>{{ loot.名称 }}</strong>
               <span>x{{ loot.数量 }}</span>
+            </li>
+          </ul>
+        </div>
+        <div v-if="latestLootResult?.loot_result.special_findings.length" class="preview-block">
+          <h3>特殊发现</h3>
+          <ul class="info-list">
+            <li v-for="finding in latestLootResult.loot_result.special_findings" :key="finding.name + finding.reason">
+              <strong>{{ finding.name || '未命名发现' }}</strong>
+              <span>{{ finding.description || finding.reason || '无说明' }}</span>
             </li>
           </ul>
         </div>
@@ -763,7 +826,7 @@
             终局提交回主状态
           </button>
         </div>
-        <p class="hint">终局提交前必须先把 phase 标记为 finished；提交后 battle_session 会被清空。</p>
+        <p class="hint">终局提交前必须先把 phase 标记为 finished；提交时会先应用累计 `stat_data.*` 更新，再清空 `battle_session`。</p>
       </article>
 
       <article class="card">
@@ -784,6 +847,8 @@ import { klona } from 'klona';
 import { storeToRefs } from 'pinia';
 import type {
   BattleApiProfile,
+  BattleFullResult,
+  BattleLootResult,
   BattleProfile,
   BattlePromptConfig,
   BattlePromptTemplate,
@@ -805,6 +870,7 @@ type BattlePromptTemplateKey = keyof BattlePromptConfig;
 const store = useBattleWindowStore();
 const {
   mainState,
+  runtimeMainState,
   battleSession,
   apiProfiles,
   activeApiProfile,
@@ -855,14 +921,41 @@ const promptTemplateOptions: Array<{ key: BattlePromptTemplateKey; label: string
 ];
 const analyzedFields = computed(() => battleProfileDraft.value?.field_selection.selected_fields ?? []);
 const analysisWarnings = computed(() => battleProfileDraft.value?.field_selection.analysis_warnings ?? []);
-const fieldTree = computed(() => buildBattleFieldTree(mainState.value as Record<string, unknown>));
+const fieldTree = computed(() => buildBattleFieldTree(runtimeMainState.value as Record<string, unknown>));
 const selectedFieldPaths = computed(() => analyzedFields.value.map(field => field.path));
 const selectedDataExtraction = computed(() =>
-  extractSelectedBattleData(mainState.value as Record<string, unknown>, analyzedFields.value),
+  extractSelectedBattleData(runtimeMainState.value as Record<string, unknown>, analyzedFields.value),
 );
 const selectedDataPreview = computed(() => selectedDataExtraction.value.selectedData);
 const selectedDataWarnings = computed(() => selectedDataExtraction.value.warnings);
 const enabledFieldCount = computed(() => analyzedFields.value.filter(field => field.enabled).length);
+const accumulatedUpdateCount = computed(() => Object.keys(battleSession.value.runtime.accumulated_updates).length);
+const isFreeformRuntime = computed(() => battleProfileDraft.value?.run_mode === 'freeform');
+const executionButtonLabel = computed(() =>
+  battleProfileDraft.value?.default_turn_mode === 'full_battle' ? '确认并执行整场战斗' : '确认并请求 AI 预览',
+);
+const rerunButtonLabel = computed(() =>
+  battleProfileDraft.value?.default_turn_mode === 'full_battle' ? '重新执行整场战斗' : '重新结算当前回合',
+);
+const canResolveLoot = computed(
+  () =>
+    Boolean(battleProfileDraft.value) &&
+    battleSession.value.激活 &&
+    battleSession.value.phase === 'finished' &&
+    battleProfileDraft.value!.settlement_mode !== 'no_loot',
+);
+const currentSettlementText = computed(() => {
+  const settlement = battleSession.value.runtime.settlement;
+  return `${settlement.mode} / loot_ready=${settlement.loot_ready ? 'true' : 'false'} / mvu_commit_ready=${settlement.mvu_commit_ready ? 'true' : 'false'}`;
+});
+const latestFullBattleResult = computed<BattleFullResult | null>(() =>
+  lastRuntimeResult.value && 'result_type' in lastRuntimeResult.value && lastRuntimeResult.value.result_type === 'full_battle'
+    ? (lastRuntimeResult.value as BattleFullResult)
+    : null,
+);
+const latestLootResult = computed<BattleLootResult | null>(() =>
+  lastRuntimeResult.value && 'loot_result' in lastRuntimeResult.value ? (lastRuntimeResult.value as BattleLootResult) : null,
+);
 const activePromptTemplate = computed<BattlePromptTemplate | null>(() => {
   if (!battleProfileDraft.value) {
     return null;
@@ -915,6 +1008,16 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => battleSession.value.runtime.latest_battle_report,
+  value => {
+    if (!fullLogDraft.value && value) {
+      fullLogDraft.value = value;
+    }
+  },
+  { immediate: true },
+);
+
 const startBattle = async () => {
   await store.startBattle();
 };
@@ -931,13 +1034,30 @@ const reroll = async () => {
   await store.reroll();
 };
 const confirm = async () => {
-  await store.confirm();
+  await store.saveStrategy(strategyDraft.value);
+  if (!battleProfileDraft.value) {
+    await store.confirm();
+    return;
+  }
+  await store.executeConfiguredBattleTurn(battleProfileDraft.value, selectedDataPreview.value);
 };
 const resolveAgain = async () => {
-  await store.resolveAgain();
+  await store.saveStrategy(strategyDraft.value);
+  if (!battleProfileDraft.value) {
+    await store.resolveAgain();
+    return;
+  }
+  await store.executeConfiguredBattleTurn(battleProfileDraft.value, selectedDataPreview.value);
 };
 const useMockPreview = async () => {
   await store.useMockPreview();
+};
+const resolveLoot = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  await store.saveStrategy(strategyDraft.value);
+  await store.executeConfiguredLootResolution(battleProfileDraft.value, selectedDataPreview.value);
 };
 const applyPreview = async () => {
   await store.applyPreview();
@@ -1028,7 +1148,7 @@ const addFieldFromTree = (path: string) => {
     return;
   }
 
-  const nextField = createBattleSelectedFieldFromState(mainState.value as Record<string, unknown>, path, 'manual');
+  const nextField = createBattleSelectedFieldFromState(runtimeMainState.value as Record<string, unknown>, path, 'manual');
   const nextFields = upsertBattleSelectedField(battleProfileDraft.value.field_selection.selected_fields, nextField);
   patchFieldSelectionDraft(nextFields);
 };

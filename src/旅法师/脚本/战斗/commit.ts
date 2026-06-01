@@ -1,6 +1,7 @@
 import { klona } from 'klona';
 import { BattleSessionSchema, type BattleSession } from '../../schema.ts';
 import { stateAccess, type StateAccessApi, type StateAccessTransactionResult } from '../MVU/state-access.ts';
+import { assertBattleFlatUpdates } from './battle-updates.ts';
 
 export type BattleCommitOptions = {
   sourceMessageId: number;
@@ -90,6 +91,11 @@ export async function commitBattleOutcome(
       const resolvedOutputMode = outputMode ?? session.output_mode;
       const narrative = resolvedOutputMode === 'full_log' ? fullLog || summary : summary || fullLog;
       const { hero, team } = resolveHeroUnit(session);
+      const validatedUpdates = assertBattleFlatUpdates(session.runtime.accumulated_updates);
+
+      for (const update of validatedUpdates) {
+        _.set(draft, update.statePath, klona(update.value));
+      }
 
       draft.主角.当前化身 = hero;
       draft.队伍 = team;

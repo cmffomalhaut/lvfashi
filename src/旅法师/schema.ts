@@ -160,6 +160,7 @@ export const PrebattleSnapshotSchema = z
     队伍: z.record(z.string(), 单位Schema).prefault({}),
     敌方: z.record(z.string(), 单位Schema).prefault({}),
     背包: z.record(z.string(), 背包物品Schema).prefault({}),
+    任务: z.record(z.string(), 任务Schema).prefault({}),
     当前可见卡: z.record(z.string(), 可见卡Schema).prefault({}),
   })
   .prefault({});
@@ -200,6 +201,32 @@ const SharedDarkPoolSchema = z
   })
   .prefault({});
 
+const BattleRuntimeSettlementSchema = z
+  .object({
+    mode: z.enum(['no_loot', 'direct_loot', 'checked_loot']).prefault('no_loot'),
+    mvu_commit_ready: z.boolean().prefault(false),
+    loot_ready: z.boolean().prefault(false),
+    loot_context: z.record(z.string(), z.unknown()).prefault({}),
+    check_prompt_needed: z.boolean().prefault(false),
+  })
+  .prefault({});
+
+export const BattleRuntimeStateSchema = z
+  .object({
+    last_result_type: z.enum(['none', 'round', 'full_battle', 'loot']).prefault('none'),
+    latest_summary: trimmedString().prefault(''),
+    latest_narration: trimmedString().prefault(''),
+    latest_battle_report: trimmedString().prefault(''),
+    latest_battle_end: z.boolean().prefault(false),
+    latest_battle_end_reason: trimmedString().prefault(''),
+    latest_status_changes: z.array(trimmedString()).prefault([]),
+    latest_resource_changes: z.array(trimmedString()).prefault([]),
+    latest_warnings: z.array(trimmedString()).prefault([]),
+    accumulated_updates: z.record(z.string(), z.unknown()).prefault({}),
+    settlement: BattleRuntimeSettlementSchema.prefault({}),
+  })
+  .prefault({});
+
 const BattleCombatantsSchema = z
   .object({
     allies: z.record(z.string(), 单位Schema).prefault({}),
@@ -215,6 +242,7 @@ export const RoundCheckpointSchema = z
     shared_dark_pool: SharedDarkPoolSchema.prefault({}),
     combatants: BattleCombatantsSchema.prefault({}),
     pending_preview: PendingPreviewSchema.prefault({}),
+    runtime: BattleRuntimeStateSchema.prefault({}),
   })
   .prefault({});
 
@@ -237,6 +265,7 @@ export const BattleSessionSchema = z
     combatants: BattleCombatantsSchema.prefault({}),
     prebattle_snapshot: PrebattleSnapshotSchema.prefault({}),
     pending_preview: PendingPreviewSchema.prefault({}),
+    runtime: BattleRuntimeStateSchema.prefault({}),
     round_checkpoint: RoundCheckpointSchema.prefault({}),
     output_mode: z.enum(['summary_only', 'full_log']).prefault('summary_only'),
   })

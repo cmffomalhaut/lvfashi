@@ -49,7 +49,11 @@
 - 已完成字段勾选树 UI 的正式编码
 - 已完成 `selected_data` 抽取器的正式编码
 - 已完成正式 AI 请求层的正式编码
-- 单回合战斗执行链、快速整场执行链、战利品结算执行链、写回层仍未开始
+- 已完成单回合战斗执行链的正式编码
+- 已完成快速整场执行链的正式编码
+- 已完成战利品结算执行链的正式编码
+- 已完成扁平路径更新校验与 MVU 写回层的正式编码
+- 与现有 `battle_session` 的进一步整合策略细化、调试与回显工具仍未开始
 
 ---
 
@@ -419,70 +423,65 @@
   - 这里只完成“发送并解析结果”，未接入现有 `battle_session` 状态机
   - 结果仍作为实验区展示，真正的战斗状态写回留待执行链阶段
 
+### 3.16 单回合战斗执行链已落地
+
+- 已补齐：
+  - [session.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/session.ts) 的正式运行结果接入入口
+  - [runtime-session.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/runtime-session.ts) 的 battle_session 运行态投影与预览构造
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的按当前配置执行单回合入口
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的正式单回合执行按钮与结果展示
+
+- 当前单回合执行链已实现：
+  - 从当前 `battle_session` 投影运行态 `selected_data`
+  - 读取当前战斗配置并按 `dice_driven / freeform` 生成正式运行请求
+  - 接收 `BattleRoundResult` 后构造 `pending_preview`
+  - 将 `battle_end / settlement / narration / status_changes / resource_changes` 回写到 `battle_session.runtime`
+  - 在前端显示本回合叙述、战斗结束标记和累计待写回更新
+
+### 3.17 快速整场执行链已落地
+
+- 已补齐：
+  - [runtime-session.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/runtime-session.ts) 的整场结果预览适配
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的整场执行入口
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的整场回合摘要与战报展示
+
+- 当前快速整场执行链已实现：
+  - 按 `default_turn_mode = full_battle` 一键执行整场推演
+  - 将最终结果直接推进到 `battle_session.finished`
+  - 展示每回合摘要列表与最终战报
+  - 保留最终扁平更新，供后续终局提交统一写回
+
+### 3.18 战利品结算执行链已落地
+
+- 已补齐：
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的 `no_loot / direct_loot / checked_loot` 分支入口
+  - [runtime-session.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/runtime-session.ts) 的战利品草案与特殊发现适配
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的战利品结算按钮与回显
+
+- 当前战利品结算执行链已实现：
+  - `no_loot` 直接跳过掉落流程
+  - `direct_loot` 可在终局后直接请求战利品结果
+  - `checked_loot` 需要额外点击触发正式结算
+  - 战利品与特殊发现会回写到 `pending_preview.proposed_loot / proposed_world_events`
+
+### 3.19 扁平路径更新校验与 MVU 写回层已落地
+
+- 已新增：
+  - [battle-updates.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/battle-updates.ts)
+
+- 已补齐：
+  - [commit.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/commit.ts) 的累计更新统一写回
+  - [schema.ts](E:/Gg/tavern_resource-main/src/旅法师/schema.ts) / [snapshot.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/snapshot.ts) 的运行态与快照补齐
+
+- 当前写回层已实现：
+  - 只接受 `stat_data.` 开头更新路径
+  - 拒绝 `__proto__ / prototype / constructor` 等危险路径
+  - 支持将 AI 扁平更新合并为 `battle_session.runtime.accumulated_updates`
+  - 终局提交时会先应用累计 `stat_data.*` 更新，再合并战斗单位、掉落和近期事务写回 MVU
+
 ---
 
 ## 4. 待实现
-
-### 4.9 单回合战斗执行链
-
-状态：
-- 未开始
-
-目标：
-- 根据 `BattleProfile` 构造运行请求
-- 接收 `BattleRoundResult`
-- 展示结果
-- 准备写回更新
-
-完成标准：
-- 能发起一次单回合战斗
-- 能展示摘要和叙述
-- 能识别 `battle_end`
-- 能保留本回合更新项
-
-### 4.10 快速整场执行链
-
-状态：
-- 未开始
-
-目标：
-- 发起整场推演
-- 接收 `BattleFullResult`
-- 展示每回合摘要和最终战报
-
-完成标准：
-- 能一键推演到战斗结束
-- 能整场重跑
-- 不支持中途抽单回合返工
-
-### 4.11 战利品结算执行链
-
-状态：
-- 未开始
-
-目标：
-- 根据结算模式决定是否进入掉落流程
-- 处理 `no_loot` / `direct_loot` / `checked_loot`
-
-完成标准：
-- `no_loot` 不进入掉落
-- `direct_loot` 可直接拿结果
-- `checked_loot` 需额外触发检定/结算
-
-### 4.12 扁平路径更新校验与 MVU 写回层
-
-状态：
-- 未开始
-
-目标：
-- 校验 AI 返回路径是否合法
-- 将更新按路径合并回当前 `stat_data`
-- 统一写回 MVU
-
-完成标准：
-- 只接受 `stat_data.` 开头路径
-- 不允许 `op/add/remove`
-- 能集中处理写回错误
 
 ### 4.13 与现有 `battle_session` 的整合策略
 
@@ -527,21 +526,23 @@
 5. 与现有 `battle_session` 的整合
 6. 调试与回显工具
 
+当前 `1-4` 已完成，下一步从 `5` 开始。
+
 ---
 
 ## 6. 当前建议的最近一步
 
 最近一步建议固定为：
 
-1. 先实现单回合战斗执行链
+1. 先实现与现有 `battle_session` 的整合策略细化
 
 原因：
-- 配置期主链已经具备最小可用闭环
-- 下一步应把单回合请求结果真正接回现有战斗流程，而不是只停留在实验区发请求
+- 单回合、整场、掉落和写回层已经有可运行落点
+- 下一步应明确哪些流程继续复用现有 `session.ts / commit.ts`，哪些仍由新配置层负责
 
 做完这一步后，下一步应切到：
 
-2. 快速整场执行链
+2. 调试与回显工具
 
 ---
 
@@ -585,3 +586,4 @@
 - 完成 Prompt 配置模块，并将“最近一步”推进到战斗规则配置模块
 - 完成战斗规则配置模块与字段分析调用层，并将“最近一步”推进到字段勾选树 UI
 - 完成字段勾选树 UI、`selected_data` 抽取器与 AI 请求层，并将“最近一步”推进到单回合战斗执行链
+- 完成单回合战斗执行链、快速整场执行链、战利品结算执行链与扁平路径写回层，并将“最近一步”推进到 `battle_session` 整合策略细化

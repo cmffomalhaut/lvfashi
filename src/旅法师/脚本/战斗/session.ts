@@ -19,6 +19,23 @@ export type ResumeOrRebuildResult = {
   transaction: StateAccessTransactionResult | null;
 };
 
+export type BattleRuntimePreviewApplication = {
+  preview: BattleSession['pending_preview'];
+  accumulatedUpdates: Record<string, unknown>;
+  latestResult: {
+    type: 'round' | 'full_battle' | 'loot';
+    summary?: string;
+    narration?: string;
+    battleReport?: string;
+    battleEnd?: boolean;
+    battleEndReason?: string;
+    statusChanges?: string[];
+    resourceChanges?: string[];
+    warnings?: string[];
+    settlement?: BattleSession['runtime']['settlement'];
+  };
+};
+
 const now = () => Date.now();
 const rollD20 = () => _.random(1, 20);
 const darkPool = () => Array.from({ length: 5 }, () => rollD20());
@@ -44,6 +61,7 @@ function captureRoundCheckpoint(session: BattleSession, phase: BattleSession['ph
       shared_dark_pool: klona(session.shared_dark_pool),
       combatants: klona(session.combatants),
       pending_preview: klona(session.pending_preview),
+      runtime: klona(session.runtime),
     },
     { reportInput: true },
   );
@@ -56,15 +74,17 @@ function restoreRoundCheckpoint(session: BattleSession) {
   session.shared_dark_pool = klona(session.round_checkpoint.shared_dark_pool);
   session.combatants = klona(session.round_checkpoint.combatants);
   session.pending_preview = klona(session.round_checkpoint.pending_preview);
+  session.runtime = klona(session.round_checkpoint.runtime);
 }
 
 function hasUncommittedRoundState(session: BattleSession) {
   return (
     session.phase !== session.round_checkpoint.phase ||
-    !_.isEqual(session.player_check, session.round_checkpoint.player_check) ||
-    !_.isEqual(session.shared_dark_pool, session.round_checkpoint.shared_dark_pool) ||
-    !_.isEqual(session.pending_preview, session.round_checkpoint.pending_preview) ||
-    !_.isEqual(session.combatants, session.round_checkpoint.combatants)
+      !_.isEqual(session.player_check, session.round_checkpoint.player_check) ||
+      !_.isEqual(session.shared_dark_pool, session.round_checkpoint.shared_dark_pool) ||
+      !_.isEqual(session.pending_preview, session.round_checkpoint.pending_preview) ||
+      !_.isEqual(session.combatants, session.round_checkpoint.combatants) ||
+      !_.isEqual(session.runtime, session.round_checkpoint.runtime)
   );
 }
 
@@ -76,6 +96,28 @@ function hasResolvedCombatants(session: Pick<BattleSession, 'pending_preview'>) 
 function assertActive(session: BattleSession) {
   if (!session.激活) {
     throw new Error('battle_session is not active');
+  }
+}
+
+function assignRuntimePreviewApplication(
+  session: BattleSession,
+  application: BattleRuntimePreviewApplication,
+  phase: BattleSession['phase'],
+) {
+  session.pending_preview = PendingPreviewSchema.parse(application.preview, { reportInput: true });
+  session.phase = phase;
+  session.runtime.last_result_type = application.latestResult.type;
+  session.runtime.latest_summary = application.latestResult.summary || session.pending_preview.summary;
+  session.runtime.latest_narration = application.latestResult.narration || '';
+  session.runtime.latest_battle_report = application.latestResult.battleReport || '';
+  session.runtime.latest_battle_end = Boolean(application.latestResult.battleEnd);
+  session.runtime.latest_battle_end_reason = application.latestResult.battleEndReason || '';
+  session.runtime.latest_status_changes = klona(application.latestResult.statusChanges ?? []);
+  session.runtime.latest_resource_changes = klona(application.latestResult.resourceChanges ?? []);
+  session.runtime.latest_warnings = klona(application.latestResult.warnings ?? []);
+  session.runtime.accumulated_updates = klona(application.accumulatedUpdates);
+  if (application.latestResult.settlement) {
+    session.runtime.settlement = klona(application.latestResult.settlement);
   }
 }
 
@@ -112,6 +154,7 @@ function buildBattleSession(mainState: MainState, sourceMessageId: number, mode:
       },
       prebattle_snapshot: createPrebattleSnapshot(mainState, sourceMessageId),
       pending_preview: {},
+      runtime: {},
       round_checkpoint: {},
       output_mode: 'summary_only',
     },
@@ -308,6 +351,45 @@ export function createBattleSessionController(
       },
     });
 
+  const applyRuntimeRoundPreview = (sourceMessageId: number, application: BattleRuntimePreviewApplication) =>
+    access.editBattleSession({
+      sourceMessageId,
+      mutate: draft => {
+        assertActive(draft);
+        draft.player_check.confirmed = true;
+        assignRuntimePreviewApplication(draft, application, application.latestResult.battleEnd ? 'finished' : 'preview');
+        if (draft.phase === 'finished') {
+          draft.round_checkpoint = captureRoundCheckpoint(draft, 'finished');
+        }
+        draft.meta.updated_at = now();
+      },
+    });
+
+  const applyRuntimeFullBattleResult = (sourceMessageId: number, application: BattleRuntimePreviewApplication) =>
+    access.editBattleSession({
+      sourceMessageId,
+      mutate: draft => {
+        assertActive(draft);
+        draft.player_check.confirmed = true;
+        assignRuntimePreviewApplication(draft, application, 'finished');
+        draft.round_checkpoint = captureRoundCheckpoint(draft, 'finished');
+        draft.meta.updated_at = now();
+      },
+    });
+
+  const applyRuntimeLootResult = (sourceMessageId: number, application: BattleRuntimePreviewApplication) =>
+    access.editBattleSession({
+      sourceMessageId,
+      mutate: draft => {
+        assertActive(draft);
+        assignRuntimePreviewApplication(draft, application, draft.phase === 'finished' ? 'finished' : 'preview');
+        if (draft.phase === 'finished') {
+          draft.round_checkpoint = captureRoundCheckpoint(draft, 'finished');
+        }
+        draft.meta.updated_at = now();
+      },
+    });
+
   const setOutputMode = (sourceMessageId: number, outputMode: BattleSession['output_mode']) =>
     access.editBattleSession({
       sourceMessageId,
@@ -346,6 +428,9 @@ export function createBattleSessionController(
     mockPreview,
     applyPendingPreview,
     finishBattle,
+    applyRuntimeRoundPreview,
+    applyRuntimeFullBattleResult,
+    applyRuntimeLootResult,
     setOutputMode,
     commitBattle,
     abandonBattle,

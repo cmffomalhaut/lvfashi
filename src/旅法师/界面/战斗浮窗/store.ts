@@ -22,6 +22,12 @@ import {
   requestBattleSingleRound,
   type BattleRuntimeRequestOptions,
 } from '../../脚本/战斗/runtime-ai.ts';
+import {
+  createPendingPreviewFromFullBattleResult,
+  createPendingPreviewFromLootResult,
+  createPendingPreviewFromRoundResult,
+  projectMainStateFromBattleSession,
+} from '../../脚本/战斗/runtime-session.ts';
 import { battleSessionController } from '../../脚本/战斗/session.ts';
 
 function resolveLatestMessageId(): number {
@@ -62,6 +68,9 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
 
   const mainState = computed<MainState>(() => klona(projectMainState(canonicalState.value)));
   const battleSession = computed<BattleSession>(() => klona(projectBattleSession(canonicalState.value)));
+  const runtimeMainState = computed<MainState>(() =>
+    battleSession.value.激活 ? projectMainStateFromBattleSession(battleSession.value) : mainState.value,
+  );
   const apiProfiles = computed(() => settings.value.api_profiles.map(profile => klona(profile)));
   const activeApiProfile = computed<BattleApiProfile | null>(
     () => settings.value.api_profiles.find(profile => profile.id === settings.value.active_api_profile_id) ?? null,
@@ -249,8 +258,35 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   ): BattleRuntimeRequestOptions => ({
     ...options,
     worldbookContext: profile.context.include_worldbook_context ? [] : [],
-    environmentContext: profile.context.include_environment_context ? klona(mainState.value.世界 as Record<string, unknown>) : {},
+    environmentContext: profile.context.include_environment_context
+      ? klona(runtimeMainState.value.世界 as Record<string, unknown>)
+      : {},
   });
+
+  const createBattleSessionRuntimeOptions = (profile: BattleProfile): BattleRuntimeRequestOptions => {
+    if (!battleSession.value.激活) {
+      throw new Error('battle_session is not active');
+    }
+
+    const session = battleSession.value;
+    const diceInputs =
+      profile.run_mode === 'freeform'
+        ? {}
+        : {
+            player_roll: session.player_check.roll,
+            reroll_used: session.player_check.reroll_used,
+            dark_pool_remaining: klona(session.shared_dark_pool.values.slice(session.shared_dark_pool.cursor)),
+            dark_pool_cursor: session.shared_dark_pool.cursor,
+            round_no: session.round.round_no,
+            acting_side: session.round.acting_side,
+          };
+
+    return createRuntimeRequestOptions(profile, {
+      playerCommand: session.player_check.strategy_text,
+      diceInputs,
+      extraInstructions: '',
+    });
+  };
 
   const sendSingleRoundRequest = async (
     profile: BattleProfile,
@@ -309,6 +345,118 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       return execution.result;
     });
 
+  const executeConfiguredBattleTurn = async (profile: BattleProfile, selectedData: Record<string, unknown>) =>
+    runRuntimeRequestAction(async () => {
+      lastResolveError.value = '';
+      if (!battleSession.value.激活) {
+        throw new Error('请先开始战斗，再执行正式战斗链路');
+      }
+
+      const apiProfile = resolveBattleApiProfile(profile);
+      const runtimeOptions = createBattleSessionRuntimeOptions(profile);
+
+      if (profile.default_turn_mode === 'full_battle') {
+        const execution = await requestBattleFullBattle(apiProfile, profile, selectedData, runtimeOptions);
+        const application = createPendingPreviewFromFullBattleResult(battleSession.value, execution.result);
+        lastRuntimePayload.value = execution.payload;
+        lastRuntimeResult.value = execution.result;
+        await battleSessionController.applyRuntimeFullBattleResult(sourceMessageId.value, {
+          preview: application.preview,
+          accumulatedUpdates: application.accumulatedUpdates,
+          latestResult: {
+            type: 'full_battle',
+            summary: execution.result.rounds.at(-1)?.summary || execution.result.battle_report,
+            battleReport: execution.result.battle_report,
+            battleEnd: true,
+            battleEndReason: execution.result.battle_end_reason,
+            warnings: execution.result.warnings,
+            settlement: execution.result.settlement,
+          },
+        });
+        lastRuntimeRequestMessage.value = '快速整场战斗执行完成';
+        refresh();
+        return execution.result;
+      }
+
+      const execution = await requestBattleSingleRound(apiProfile, profile, selectedData, runtimeOptions);
+      const application = createPendingPreviewFromRoundResult(battleSession.value, execution.result);
+      lastRuntimePayload.value = execution.payload;
+      lastRuntimeResult.value = execution.result;
+      await battleSessionController.applyRuntimeRoundPreview(sourceMessageId.value, {
+        preview: application.preview,
+        accumulatedUpdates: application.accumulatedUpdates,
+        latestResult: {
+          type: 'round',
+          summary: execution.result.summary,
+          narration: execution.result.narration,
+          battleEnd: execution.result.battle_end,
+          battleEndReason: execution.result.battle_end_reason,
+          statusChanges: execution.result.status_changes,
+          resourceChanges: execution.result.resource_changes,
+          warnings: execution.result.warnings,
+          settlement: execution.result.settlement,
+        },
+      });
+      lastRuntimeRequestMessage.value = execution.result.battle_end ? '单回合执行完成，战斗已结束' : '单回合执行完成';
+      refresh();
+      return execution.result;
+    });
+
+  const executeConfiguredLootResolution = async (profile: BattleProfile, selectedData: Record<string, unknown>) =>
+    runRuntimeRequestAction(async () => {
+      lastResolveError.value = '';
+      if (!battleSession.value.激活) {
+        throw new Error('请先开始战斗，再处理战利品结算');
+      }
+
+      if (profile.settlement_mode === 'no_loot') {
+        lastRuntimeRequestMessage.value = '当前结算模式为 no_loot，已跳过战利品流程';
+        return null;
+      }
+
+      if (battleSession.value.phase !== 'finished') {
+        throw new Error('请先让战斗进入 finished，再处理战利品结算');
+      }
+
+      const apiProfile = resolveBattleApiProfile(profile);
+      const sessionOptions = createBattleSessionRuntimeOptions(profile);
+      const lootExtraInstructions = [
+        sessionOptions.extraInstructions,
+        battleSession.value.runtime.settlement.check_prompt_needed ? '当前为 checked_loot，请根据额外检定或搜刮说明进行结算。' : '',
+        _.isEmpty(battleSession.value.runtime.settlement.loot_context)
+          ? ''
+          : `settlement_loot_context=\n${JSON.stringify(battleSession.value.runtime.settlement.loot_context, null, 2)}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      const execution = await requestBattleLootResolution(apiProfile, profile, selectedData, {
+        ...sessionOptions,
+        extraInstructions: lootExtraInstructions,
+      });
+      const application = createPendingPreviewFromLootResult(battleSession.value, execution.result);
+      lastRuntimePayload.value = execution.payload;
+      lastRuntimeResult.value = execution.result;
+      await battleSessionController.applyRuntimeLootResult(sourceMessageId.value, {
+        preview: application.preview,
+        accumulatedUpdates: application.accumulatedUpdates,
+        latestResult: {
+          type: 'loot',
+          summary: execution.result.loot_result.has_loot ? '战利品结算完成' : '战利品结算完成，无额外掉落',
+          warnings: execution.result.warnings,
+          settlement: {
+            ...battleSession.value.runtime.settlement,
+            loot_ready: true,
+            mvu_commit_ready: true,
+            loot_context: execution.result.loot_context,
+          },
+        },
+      });
+      lastRuntimeRequestMessage.value =
+        profile.settlement_mode === 'checked_loot' ? 'checked_loot 结算已完成' : '战利品结算已完成';
+      refresh();
+      return execution.result;
+    });
+
   const startBattle = () => runAndRefresh(() => battleSessionController.startBattle(sourceMessageId.value));
   const resumeOrRebuild = () => runAndRefresh(() => battleSessionController.resumeOrRebuild(sourceMessageId.value));
   const forceRebuild = () => runAndRefresh(() => battleSessionController.startBattle(sourceMessageId.value, 'rebuild'));
@@ -363,6 +511,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   return {
     mainState,
     battleSession,
+    runtimeMainState,
     settings,
     apiProfiles,
     activeApiProfile,
@@ -404,6 +553,8 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     sendSingleRoundRequest,
     sendFullBattleRequest,
     sendLootResolutionRequest,
+    executeConfiguredBattleTurn,
+    executeConfiguredLootResolution,
     startBattle,
     resumeOrRebuild,
     forceRebuild,

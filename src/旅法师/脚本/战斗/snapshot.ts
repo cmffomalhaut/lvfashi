@@ -9,6 +9,7 @@ export function createPrebattleSnapshot(state: MainState, sourceMessageId: numbe
     队伍: klona(state.队伍),
     敌方: klona(state.敌方),
     背包: klona(state.背包),
+    任务: klona(state.任务),
     当前可见卡: klona(state.当前可见卡),
   };
   return PrebattleSnapshotSchema.parse(snapshot, { reportInput: true });
@@ -22,6 +23,7 @@ export function restorePrebattleSnapshot(current: CanonicalState, snapshot: Batt
     队伍: klona(snapshot.队伍),
     敌方: klona(snapshot.敌方),
     背包: klona(snapshot.背包),
+    任务: klona(snapshot.任务),
     当前可见卡: klona(snapshot.当前可见卡),
   };
 }
