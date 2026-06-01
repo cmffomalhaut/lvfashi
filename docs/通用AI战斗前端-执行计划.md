@@ -42,7 +42,9 @@
 - 数据模型已初步落地
 - 外部参考项目已完成首轮筛选
 - 已完成设置存取层的正式编码
-- 设置页、请求层、字段树、写回层仍未开始
+- 已完成 API 配置模块的正式编码
+- 已完成 Prompt 配置模块的正式编码
+- 战斗规则配置模块、请求层、字段树、写回层仍未开始
 
 ---
 
@@ -263,38 +265,60 @@
   - 长期配置不写入消息楼层 `stat_data`
   - 长期配置不混入 `battle_session`
 
+### 3.9 API 配置模块已落地
+
+- 已新增：
+  - [api-client.ts](E:/Gg/tavern_resource-main/src/旅法师/脚本/战斗/api-client.ts)
+
+- 已补齐：
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的 API 配置状态与操作
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的最小可用 API 设置界面
+  - [global.css](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/global.css) 的 API 设置区样式
+
+- 当前 API 配置模块已实现：
+  - `base_url / api_key / model / model_fetch_path / timeout / retry_limit` 的编辑入口
+  - 多个 API 配置的创建、保存、删除与激活切换
+  - 基于 OpenAI 兼容接口的模型列表拉取
+  - 基于 `/chat/completions` 的连接测试
+  - 最近一次测试结果 `last_test_result` 的持久化回写
+
+- 当前边界：
+  - 只完成最小可用设置界面，不含完整 Prompt 管理页
+  - 只先覆盖 OpenAI 兼容链路，不扩展更多厂商专用协议
+
+### 3.10 Prompt 配置模块已落地
+
+- 已补齐：
+  - [store.ts](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/store.ts) 的战斗配置状态与操作
+  - [App.vue](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/App.vue) 的 Prompt 配置界面
+  - [global.css](E:/Gg/tavern_resource-main/src/旅法师/界面/战斗浮窗/global.css) 的 Prompt 编辑区样式
+
+- 当前 Prompt 配置模块已实现：
+  - 四类 Prompt 的固定编辑入口：
+    - `field_analysis`
+    - `single_round`
+    - `full_battle`
+    - `loot_resolution`
+  - 每类 Prompt 独立编辑：
+    - `system_prompt`
+    - `user_prompt`
+    - `output_contract_prompt`
+    - `notes`
+    - `version`
+  - 基于 `BattleProfile` 的多套战斗配置创建、保存、删除与激活切换
+  - 每类 Prompt 的启用/禁用切换
+  - 当前 Prompt 配置 JSON 的导入与导出
+
+- 当前边界：
+  - 只完成最小可用 Prompt 管理界面，不含更重的调试工作台
+  - Prompt 导入导出仅覆盖当前战斗配置的 `prompts` 结构，不含整套战斗规则与字段配置打包
+
+- 参考项目对照后已顺手补齐一项 API 层兼容性修正：
+  - `api-client.ts` 现已兼容 `base_url` 填写为 `.../v1`、`.../chat/completions`、`.../v1/models` 等常见形式，避免拼接出错误路径
+
 ---
 
 ## 4. 待实现
-
-### 4.2 API 配置模块
-
-状态：
-- 未开始
-
-目标：
-- 配置 base_url / api_key / model
-- 支持测试连接
-- 支持获取模型列表
-
-完成标准：
-- 能保存多个 API 配置
-- 能切换当前使用的 API 配置
-- 能记录最近一次测试结果
-
-### 4.3 Prompt 配置模块
-
-状态：
-- 未开始
-
-目标：
-- 可编辑四类 prompt
-- 可分开编辑 `system_prompt` / `user_prompt` / `output_contract_prompt`
-
-完成标准：
-- 四类 prompt 都可保存
-- 支持启用/禁用
-- 支持后续导入导出扩展
 
 ### 4.4 战斗规则配置模块
 
@@ -467,19 +491,17 @@
 
 按依赖关系，建议执行顺序如下：
 
-1. API 配置模块
-2. Prompt 配置模块
-3. 战斗规则配置模块
-4. 字段分析调用层
-5. 字段勾选树 UI
-6. `selected_data` 抽取器
-7. AI 请求层
-8. 单回合战斗执行链
-9. 快速整场执行链
-10. 战利品结算执行链
-11. 扁平路径更新校验与 MVU 写回层
-12. 与现有 `battle_session` 的整合
-13. 调试与回显工具
+1. 战斗规则配置模块
+2. 字段分析调用层
+3. 字段勾选树 UI
+4. `selected_data` 抽取器
+5. AI 请求层
+6. 单回合战斗执行链
+7. 快速整场执行链
+8. 战利品结算执行链
+9. 扁平路径更新校验与 MVU 写回层
+10. 与现有 `battle_session` 的整合
+11. 调试与回显工具
 
 ---
 
@@ -487,15 +509,15 @@
 
 最近一步建议固定为：
 
-1. 先实现 API 配置模块
+1. 先实现战斗规则配置模块
 
 原因：
-- `BattleFrontendSettings` 存取层已经落地
-- API 配置是后续 prompt 配置、字段分析调用、正式战斗请求的共同前置
+- Prompt 配置模块已经具备基础可用性
+- 下一步应把运行模式、结算模式和战斗协议编辑接到已完成的战斗配置层上
 
 做完这一步后，下一步应切到：
 
-2. Prompt 配置模块
+2. 字段分析调用层
 
 ---
 
@@ -535,3 +557,5 @@
 - 记录当前尚处于设计完成、实现未启动阶段
 - 补入深访后的执行硬约束、第一版范围、非目标、双模式要求、失败条件和停机触发条件
 - 完成 `BattleFrontendSettings` 存取层，并将“最近一步”推进到 API 配置模块
+- 完成 API 配置模块，并将“最近一步”推进到 Prompt 配置模块
+- 完成 Prompt 配置模块，并将“最近一步”推进到战斗规则配置模块

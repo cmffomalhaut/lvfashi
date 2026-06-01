@@ -1,6 +1,15 @@
 import { klona } from 'klona';
 import { type BattleSession, type MainState, Schema } from '../../schema.ts';
 import { projectBattleSession, projectMainState, stateAccess } from '../../脚本/MVU/state-access.ts';
+import {
+  createDefaultBattleApiProfile,
+  createDefaultBattleProfile,
+  type BattleApiProfile,
+  type BattleProfile,
+  type BattleFrontendSettings,
+} from '../../脚本/战斗/ai-profile.ts';
+import { fetchBattleApiModels, testBattleApiConnection } from '../../脚本/战斗/api-client.ts';
+import { battleFrontendSettingsAccess } from '../../脚本/战斗/frontend-settings.ts';
 import { battleSessionController } from '../../脚本/战斗/session.ts';
 
 function resolveLatestMessageId(): number {
@@ -9,18 +18,40 @@ function resolveLatestMessageId(): number {
 
 export const useBattleWindowStore = defineStore('planeswalker.battle-window', () => {
   const canonicalState = ref(Schema.parse({}, { reportInput: true }));
+  const settings = ref<BattleFrontendSettings>(battleFrontendSettingsAccess.read());
+  const discoveredModels = ref<Record<string, string[]>>({});
   const isResolving = ref(false);
+  const isApiBusy = ref(false);
   const lastResolveError = ref('');
+  const lastApiMessage = ref('');
+  const lastApiError = ref('');
 
   const refresh = () => {
     canonicalState.value = stateAccess.readCanonicalState();
   };
 
+  const refreshSettings = async () => {
+    settings.value = await battleFrontendSettingsAccess.load();
+  };
+
   refresh();
   useIntervalFn(refresh, 1000);
+  void refreshSettings();
 
   const mainState = computed<MainState>(() => klona(projectMainState(canonicalState.value)));
   const battleSession = computed<BattleSession>(() => klona(projectBattleSession(canonicalState.value)));
+  const apiProfiles = computed(() => settings.value.api_profiles.map(profile => klona(profile)));
+  const activeApiProfile = computed<BattleApiProfile | null>(
+    () => settings.value.api_profiles.find(profile => profile.id === settings.value.active_api_profile_id) ?? null,
+  );
+  const battleProfiles = computed(() => settings.value.battle_profiles.map(profile => klona(profile)));
+  const activeBattleProfile = computed<BattleProfile | null>(
+    () => settings.value.battle_profiles.find(profile => profile.id === settings.value.active_battle_profile_id) ?? null,
+  );
+  const discoveredActiveModels = computed(() => {
+    const profile = activeApiProfile.value;
+    return profile ? discoveredModels.value[profile.id] ?? [] : [];
+  });
   const enemyCount = computed(() => Object.keys(mainState.value.敌方).length);
   const sourceMessageId = computed(() => resolveLatestMessageId());
   const canResume = computed(
@@ -40,6 +71,92 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     refresh();
     return result;
   };
+
+  const runApiAction = async <T>(action: () => Promise<T>) => {
+    isApiBusy.value = true;
+    lastApiMessage.value = '';
+    lastApiError.value = '';
+
+    try {
+      return await action();
+    } catch (error) {
+      lastApiError.value = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      isApiBusy.value = false;
+    }
+  };
+
+  const createApiProfile = async () => {
+    settings.value = await battleFrontendSettingsAccess.upsertApiProfile(createDefaultBattleApiProfile(), {
+      makeActive: true,
+    });
+  };
+
+  const saveApiProfile = async (profile: BattleApiProfile, options: { makeActive?: boolean } = {}) => {
+    settings.value = await battleFrontendSettingsAccess.upsertApiProfile(profile, options);
+  };
+
+  const removeApiProfile = async (profileId: string) => {
+    settings.value = await battleFrontendSettingsAccess.removeApiProfile(profileId);
+    delete discoveredModels.value[profileId];
+  };
+
+  const setActiveApiProfile = async (profileId: string | null) => {
+    settings.value = await battleFrontendSettingsAccess.setActiveApiProfile(profileId);
+  };
+
+  const createBattleProfile = async () => {
+    settings.value = await battleFrontendSettingsAccess.upsertBattleProfile(
+      createDefaultBattleProfile(settings.value.active_api_profile_id),
+      {
+        makeActive: true,
+      },
+    );
+  };
+
+  const saveBattleProfile = async (profile: BattleProfile, options: { makeActive?: boolean } = {}) => {
+    settings.value = await battleFrontendSettingsAccess.upsertBattleProfile(profile, options);
+  };
+
+  const removeBattleProfile = async (profileId: string) => {
+    settings.value = await battleFrontendSettingsAccess.removeBattleProfile(profileId);
+  };
+
+  const setActiveBattleProfile = async (profileId: string | null) => {
+    settings.value = await battleFrontendSettingsAccess.setActiveBattleProfile(profileId);
+  };
+
+  const discoverApiModels = async (profile: BattleApiProfile) =>
+    runApiAction(async () => {
+      const result = await fetchBattleApiModels(profile);
+      discoveredModels.value = {
+        ...discoveredModels.value,
+        [profile.id]: result.models,
+      };
+      lastApiMessage.value = result.models.length
+        ? `已拉取 ${result.models.length} 个模型`
+        : '模型列表请求成功，但未解析到模型 id';
+      return result.models;
+    });
+
+  const testApiProfile = async (profile: BattleApiProfile) =>
+    runApiAction(async () => {
+      const testResult = await testBattleApiConnection(profile);
+      settings.value = await battleFrontendSettingsAccess.upsertApiProfile(
+        {
+          ...profile,
+          last_test_result: testResult,
+        },
+        { makeActive: settings.value.active_api_profile_id === profile.id },
+      );
+      if (testResult.ok) {
+        lastApiMessage.value = testResult.message;
+      } else {
+        lastApiError.value = testResult.message;
+      }
+      return testResult;
+    });
 
   const startBattle = () => runAndRefresh(() => battleSessionController.startBattle(sourceMessageId.value));
   const resumeOrRebuild = () => runAndRefresh(() => battleSessionController.resumeOrRebuild(sourceMessageId.value));
@@ -95,13 +212,33 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   return {
     mainState,
     battleSession,
+    settings,
+    apiProfiles,
+    activeApiProfile,
+    battleProfiles,
+    activeBattleProfile,
+    discoveredActiveModels,
     enemyCount,
     sourceMessageId,
     canResume,
     roundCheckpointDirty,
     isResolving,
+    isApiBusy,
     lastResolveError,
+    lastApiMessage,
+    lastApiError,
     refresh,
+    refreshSettings,
+    createApiProfile,
+    saveApiProfile,
+    removeApiProfile,
+    setActiveApiProfile,
+    createBattleProfile,
+    saveBattleProfile,
+    removeBattleProfile,
+    setActiveBattleProfile,
+    discoverApiModels,
+    testApiProfile,
     startBattle,
     resumeOrRebuild,
     forceRebuild,
