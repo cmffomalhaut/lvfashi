@@ -10,10 +10,128 @@ let iframe: JQuery<HTMLIFrameElement> | null = null;
 let launcher: JQuery<HTMLDivElement> | null = null;
 let styleHandle: { destroy: () => void } | null = null;
 let mounted = false;
-let mountingPromise: Promise<void> | null = null;
+let mountRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
 function isWindowVisible(): boolean {
   return Boolean(iframe?.is(':visible'));
+}
+
+function clearMountRetry() {
+  if (mountRetryTimer !== null) {
+    clearTimeout(mountRetryTimer);
+    mountRetryTimer = null;
+  }
+}
+
+function reportLaunchError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('[planeswalker.battle-window] 启动失败', error);
+  if (typeof toastr !== 'undefined') {
+    toastr.error(message, '战斗浮窗启动失败');
+  }
+}
+
+function syncLauncherState() {
+  if (!launcher) {
+    return;
+  }
+
+  launcher.find('button').text(isWindowVisible() ? '隐藏战斗浮窗' : '打开战斗浮窗');
+}
+
+function showWindow() {
+  iframe?.css('display', 'block');
+  syncLauncherState();
+}
+
+function hideWindow() {
+  iframe?.css('display', 'none');
+  syncLauncherState();
+}
+
+function destroyWindow() {
+  clearMountRetry();
+  app?.unmount();
+  app = null;
+  styleHandle?.destroy();
+  styleHandle = null;
+  iframe?.remove();
+  iframe = null;
+  mounted = false;
+}
+
+function scheduleMount(frame: HTMLIFrameElement, retries = 40) {
+  clearMountRetry();
+
+  const attemptMount = async () => {
+    if (mounted || iframe?.[0] !== frame) {
+      return;
+    }
+
+    const document = frame.contentDocument;
+    const body = document?.body;
+    const head = document?.head;
+    if (!body || !head) {
+      if (retries <= 0) {
+        reportLaunchError(new Error('battle iframe did not initialize correctly'));
+        destroyWindow();
+        syncLauncherState();
+        return;
+      }
+      mountRetryTimer = setTimeout(() => scheduleMount(frame, retries - 1), 50);
+      return;
+    }
+
+    try {
+      body.innerHTML = '<div id="app"></div>';
+      styleHandle = teleportStyle(head);
+      app = await mountBattleWindowApp(body.querySelector('#app')!);
+      mounted = true;
+      showWindow();
+    } catch (error) {
+      reportLaunchError(error);
+      destroyWindow();
+      syncLauncherState();
+    }
+  };
+
+  void attemptMount();
+}
+
+function openWindow() {
+  ensureLauncherMounted();
+  if (mounted && iframe) {
+    showWindow();
+    return;
+  }
+
+  if (iframe && !mounted) {
+    destroyWindow();
+  }
+
+  const nextIframe = createScriptIdIframe()
+    .attr('title', '旅法师战斗浮窗')
+    .css({
+      position: 'fixed',
+      right: '24px',
+      bottom: '76px',
+      width: '560px',
+      height: '720px',
+      border: '1px solid rgba(148,163,184,0.35)',
+      borderRadius: '16px',
+      overflow: 'hidden',
+      zIndex: 9999,
+      boxShadow: '0 24px 60px rgba(2, 6, 23, 0.55)',
+      background: 'transparent',
+      display: 'block',
+    })
+    .on('load', () => {
+      scheduleMount(nextIframe[0]);
+    });
+
+  iframe = nextIframe.appendTo('body');
+  syncLauncherState();
+  scheduleMount(nextIframe[0]);
 }
 
 function ensureLauncherMounted() {
@@ -40,9 +158,7 @@ function ensureLauncherMounted() {
         hideWindow();
         return;
       }
-      errorCatched(async () => {
-        await ensureWindowMounted();
-      })();
+      openWindow();
     });
 
   launcher = createScriptIdDiv()
@@ -60,90 +176,10 @@ function ensureLauncherMounted() {
   return launcher;
 }
 
-function syncLauncherState() {
-  if (!launcher) {
-    return;
-  }
-
-  launcher.find('button').text(isWindowVisible() ? '隐藏战斗浮窗' : '打开战斗浮窗');
-}
-
-function showWindow() {
-  iframe?.show();
-  syncLauncherState();
-}
-
-function hideWindow() {
-  iframe?.hide();
-  syncLauncherState();
-}
-
-async function waitForIframeDocument(frame: HTMLIFrameElement) {
-  const timeoutAt = Date.now() + 3000;
-
-  while (Date.now() < timeoutAt) {
-    const document = frame.contentDocument;
-    const body = document?.body;
-    const head = document?.head;
-    if (body && head) {
-      return { body, head };
-    }
-    await new Promise(resolve => setTimeout(resolve, 16));
-  }
-
-  throw new Error('battle iframe did not initialize correctly');
-}
-
-async function ensureWindowMounted() {
-  ensureLauncherMounted();
-  if (!iframe) {
-    iframe = createScriptIdIframe()
-      .attr('title', '旅法师战斗浮窗')
-      .css({
-        position: 'fixed',
-        right: '24px',
-        bottom: '76px',
-        width: '560px',
-        height: '720px',
-        border: '1px solid rgba(148,163,184,0.35)',
-        borderRadius: '16px',
-        overflow: 'hidden',
-        zIndex: 9999,
-        boxShadow: '0 24px 60px rgba(2, 6, 23, 0.55)',
-        background: 'transparent',
-        display: 'none',
-      })
-      .appendTo('body');
-  }
-
-  if (mounted) {
-    showWindow();
-    return;
-  }
-
-  if (!mountingPromise) {
-    const frame = iframe[0];
-    mountingPromise = (async () => {
-      const { body, head } = await waitForIframeDocument(frame);
-      body.innerHTML = '<div id="app"></div>';
-      styleHandle = teleportStyle(head);
-      app = await mountBattleWindowApp(body.querySelector('#app')!);
-      mounted = true;
-    })().finally(() => {
-      mountingPromise = null;
-    });
-  }
-
-  await mountingPromise;
-  showWindow();
-}
-
 function handleMessage(event: MessageEvent<{ type?: string }>) {
   const type = event.data?.type;
   if (type === OPEN) {
-    errorCatched(async () => {
-      await ensureWindowMounted();
-    })();
+    openWindow();
   }
   if (type === CLOSE) {
     hideWindow();
@@ -161,16 +197,9 @@ $(() => {
 
   $(window).on('pagehide', () => {
     window.removeEventListener('message', handleMessage);
-    app?.unmount();
-    app = null;
-    styleHandle?.destroy();
-    styleHandle = null;
-    iframe?.remove();
-    iframe = null;
+    destroyWindow();
     launcher?.remove();
     launcher = null;
-    mounted = false;
-    mountingPromise = null;
     unique.unregister();
   });
 });
