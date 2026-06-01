@@ -35,6 +35,15 @@ let styleHandle: { destroy: () => void } | null = null;
 let mounted = false;
 let mountRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function isWindowVisible(): boolean {
   return Boolean(iframe?.is(':visible'));
 }
@@ -54,7 +63,7 @@ function reportLaunchError(error: unknown) {
     body.innerHTML = `
       <div style="min-height:100vh;box-sizing:border-box;padding:20px;background:linear-gradient(180deg,rgba(15,23,42,0.98),rgba(17,24,39,0.98));color:#fecaca;font:14px/1.6 'Segoe UI','Microsoft YaHei UI',sans-serif;">
         <h2 style="margin:0 0 12px;font-size:18px;color:#fecaca;">战斗浮窗启动失败</h2>
-        <pre style="margin:0;white-space:pre-wrap;word-break:break-word;">${_.escape(message)}</pre>
+        <pre style="margin:0;white-space:pre-wrap;word-break:break-word;">${escapeHtml(message)}</pre>
       </div>
     `;
   }
@@ -128,7 +137,8 @@ function scheduleMount(frame: HTMLIFrameElement, retries = 40) {
       showWindow();
     } catch (error) {
       reportLaunchError(error);
-      destroyWindow();
+      mounted = false;
+      showWindow();
       syncLauncherState();
     }
   };
@@ -165,7 +175,7 @@ function openWindow() {
       overflow: 'hidden',
       zIndex: 9999,
       boxShadow: '0 24px 60px rgba(2, 6, 23, 0.55)',
-      background: 'transparent',
+      background: 'linear-gradient(180deg, rgba(15,23,42,0.98), rgba(17,24,39,0.98))',
       display: 'block',
     })
     .on('load', () => {

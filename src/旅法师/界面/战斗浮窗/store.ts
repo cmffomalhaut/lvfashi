@@ -1,6 +1,6 @@
 import { klona } from 'klona';
 import { type BattleSession, type MainState, Schema } from '../../schema.ts';
-import { projectBattleSession, projectMainState, stateAccess } from '../../脚本/MVU/state-access.ts';
+import { projectBattleSession, projectMainState, resolveRuntimeLatestMessageId, stateAccess } from '../../脚本/MVU/state-access.ts';
 import {
   createDefaultBattleApiProfile,
   createDefaultBattleFrontendSettings,
@@ -36,7 +36,7 @@ import {
 import { battleSessionController } from '../../脚本/战斗/session.ts';
 
 function resolveLatestMessageId(): number {
-  return Number(getCurrentMessageId?.() ?? -1);
+  return resolveRuntimeLatestMessageId() ?? -1;
 }
 
 export const useBattleWindowStore = defineStore('planeswalker.battle-window', () => {

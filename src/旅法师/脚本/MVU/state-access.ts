@@ -65,13 +65,33 @@ type MemoryStateAccess = StateAccessApi & {
 
 export const LATEST_MESSAGE_VARIABLE_OPTION = Object.freeze({ type: 'message', message_id: 'latest' } as const);
 
-function resolveRuntimeLatestMessageId(): number | undefined {
-  const current = (globalThis as typeof globalThis & { getCurrentMessageId?: () => number | string | undefined }).getCurrentMessageId?.();
-  if (current === undefined) {
+type RuntimeMessageIdGlobals = typeof globalThis & {
+  getCurrentMessageId?: () => number | string | undefined;
+  getLastMessageId?: () => number | string | undefined;
+};
+
+function normalizeMessageId(value: number | string | undefined): number | undefined {
+  if (value === undefined) {
     return undefined;
   }
-  const numeric = Number(current);
+  const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function readRuntimeMessageId(read: () => number | string | undefined): number | undefined {
+  try {
+    return normalizeMessageId(read());
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveRuntimeLatestMessageId(): number | undefined {
+  const runtime = globalThis as RuntimeMessageIdGlobals;
+  return (
+    readRuntimeMessageId(() => runtime.getCurrentMessageId?.()) ??
+    readRuntimeMessageId(() => runtime.getLastMessageId?.())
+  );
 }
 
 const runtimeBindings: StateAccessBindings = {
