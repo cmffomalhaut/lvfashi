@@ -442,6 +442,197 @@
       </div>
     </section>
 
+    <section v-if="battleProfileDraft" class="card">
+      <div class="section-head">
+        <div>
+          <h2>字段勾选树 UI</h2>
+          <p class="hint">左侧浏览完整 `stat_data` 路径树，右侧维护当前启用字段。这里的改动先写入当前战斗配置草稿，再统一保存。</p>
+        </div>
+        <div class="button-grid">
+          <button class="btn btn--primary" :disabled="!battleProfileDraft" @click="saveBattleProfileDraft">保存字段配置</button>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <article class="settings-panel">
+          <div class="manual-field-box">
+            <label class="form-field">
+              <span>手动补选路径</span>
+              <input v-model="manualFieldPath" class="form-control" type="text" placeholder="例如：主角.当前化身.HP当前" />
+            </label>
+            <div class="button-grid">
+              <button class="btn" type="button" @click="addManualField">按路径补选</button>
+            </div>
+          </div>
+
+          <div class="field-tree-list">
+            <FieldTreeNode
+              v-for="node in fieldTree"
+              :key="node.key"
+              :node="node"
+              :selected-paths="selectedFieldPaths"
+              @toggle-select="addFieldFromTree"
+            />
+          </div>
+        </article>
+
+        <article class="settings-panel">
+          <div v-if="battleProfileDraft.field_selection.selected_fields.length" class="selected-field-list">
+            <div
+              v-for="field in battleProfileDraft.field_selection.selected_fields"
+              :key="field.path"
+              class="selected-field-item"
+            >
+              <div class="selected-field-item__head">
+                <code>{{ field.path }}</code>
+                <div class="button-grid">
+                  <button class="btn btn--ghost btn--sm" type="button" @click="toggleSelectedField(field.path)">
+                    {{ field.enabled ? '禁用' : '启用' }}
+                  </button>
+                  <button class="btn btn--warn btn--sm" type="button" @click="removeSelectedField(field.path)">删除</button>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <label class="form-field">
+                  <span>label</span>
+                  <input
+                    :value="field.label"
+                    class="form-control"
+                    type="text"
+                    @input="updateSelectedField(field.path, { label: ($event.target as HTMLInputElement).value })"
+                  />
+                </label>
+                <label class="form-field">
+                  <span>value_kind</span>
+                  <input :value="field.value_kind" class="form-control" type="text" disabled />
+                </label>
+                <label class="form-field form-field--wide">
+                  <span>reason</span>
+                  <textarea
+                    :value="field.reason"
+                    class="form-control form-control--textarea"
+                    rows="2"
+                    @input="updateSelectedField(field.path, { reason: ($event.target as HTMLTextAreaElement).value })"
+                  ></textarea>
+                </label>
+              </div>
+
+              <span class="selected-field-item__meta">来源 {{ field.source }} · {{ field.enabled ? '已启用' : '已禁用' }}</span>
+            </div>
+          </div>
+          <p v-else class="hint">当前还没有勾选字段。可以先跑一次字段分析，再从左侧路径树补选或修正。</p>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="battleProfileDraft" class="card">
+      <div class="section-head">
+        <div>
+          <h2>`selected_data` 抽取器</h2>
+          <p class="hint">这里实时预览从当前完整 `stat_data` 按启用字段抽出的精简数据，并提示缺失路径。</p>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <article class="settings-panel">
+          <div class="state-list">
+            <div class="state-list__item">
+              <strong>启用字段数</strong>
+              <span>{{ enabledFieldCount }}</span>
+            </div>
+            <div class="state-list__item">
+              <strong>缺失路径警告</strong>
+              <span>{{ selectedDataWarnings.length }}</span>
+            </div>
+            <div class="state-list__item">
+              <strong>运行期全量发送限制</strong>
+              <span>{{ battleProfileDraft.rules.forbid_full_stat_data_in_runtime ? '已启用' : '未启用' }}</span>
+            </div>
+          </div>
+
+          <div v-if="selectedDataWarnings.length" class="preview-block">
+            <h3>抽取警告</h3>
+            <ul class="info-list">
+              <li v-for="warning in selectedDataWarnings" :key="warning">{{ warning }}</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="settings-panel">
+          <div class="preview-block">
+            <h3>当前 `selected_data` 预览</h3>
+            <pre class="json-preview">{{ formatJson(selectedDataPreview) }}</pre>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="battleProfileDraft" class="card">
+      <div class="section-head">
+        <div>
+          <h2>AI 请求层</h2>
+          <p class="hint">这里仅验证“正式运行请求能发送并拿到结构化结果”，不接现有 `battle_session` 状态机。</p>
+        </div>
+        <div class="button-grid">
+          <button class="btn btn--primary" :disabled="isRuntimeRequestBusy || !enabledFieldCount" @click="sendSingleRound">
+            {{ isRuntimeRequestBusy ? '请求中...' : '发送单回合请求' }}
+          </button>
+          <button class="btn" :disabled="isRuntimeRequestBusy || !enabledFieldCount" @click="sendFullBattle">发送整场请求</button>
+          <button class="btn" :disabled="isRuntimeRequestBusy || !enabledFieldCount" @click="sendLootResolution">发送战利品请求</button>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <article class="settings-panel">
+          <div class="form-grid">
+            <label class="form-field form-field--wide">
+              <span>player_command</span>
+              <textarea
+                v-model="runtimePlayerCommand"
+                class="form-control form-control--textarea"
+                rows="4"
+                placeholder="输入单回合策略或整场战斗倾向"
+              ></textarea>
+            </label>
+            <label class="form-field form-field--wide">
+              <span>dice_inputs JSON</span>
+              <textarea
+                v-model="runtimeDiceInputsDraft"
+                class="form-control form-control--textarea form-control--code"
+                rows="4"
+                placeholder="{ }"
+              ></textarea>
+            </label>
+            <label class="form-field form-field--wide">
+              <span>额外指令</span>
+              <textarea
+                v-model="runtimeExtraInstructions"
+                class="form-control form-control--textarea"
+                rows="3"
+                placeholder="补充本次请求的临时限制或特殊说明"
+              ></textarea>
+            </label>
+          </div>
+
+          <p v-if="lastRuntimeRequestMessage" class="hint hint--ok">{{ lastRuntimeRequestMessage }}</p>
+          <p v-if="runtimeDraftError" class="hint hint--error">{{ runtimeDraftError }}</p>
+          <p v-if="lastRuntimeRequestError" class="hint hint--error">{{ lastRuntimeRequestError }}</p>
+        </article>
+
+        <article class="settings-panel">
+          <div class="preview-block">
+            <h3>最近一次运行载荷</h3>
+            <pre class="json-preview">{{ formatJson(lastRuntimePayload) }}</pre>
+          </div>
+          <div class="preview-block">
+            <h3>最近一次解析结果</h3>
+            <pre class="json-preview">{{ formatJson(lastRuntimeResult) }}</pre>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section class="summary-grid">
       <article class="card">
         <h2>会话状态</h2>
@@ -597,14 +788,23 @@ import type {
   BattlePromptConfig,
   BattlePromptTemplate,
 } from '../../脚本/战斗/ai-profile.ts';
+import {
+  buildBattleFieldTree,
+  buildUpdatedFieldSelectionConfig,
+  createBattleSelectedFieldFromState,
+  extractSelectedBattleData,
+  upsertBattleSelectedField,
+} from '../../脚本/战斗/field-selection.ts';
 import { BattlePromptConfigSchema } from '../../脚本/战斗/frontend-settings.ts';
 import type { BattleSession } from '../../schema.ts';
+import FieldTreeNode from './FieldTreeNode.vue';
 import { useBattleWindowStore } from './store';
 
 type BattlePromptTemplateKey = keyof BattlePromptConfig;
 
 const store = useBattleWindowStore();
 const {
+  mainState,
   battleSession,
   apiProfiles,
   activeApiProfile,
@@ -616,12 +816,17 @@ const {
   isResolving,
   isApiBusy,
   isFieldAnalysisBusy,
+  isRuntimeRequestBusy,
   lastResolveError,
   lastApiMessage,
   lastApiError,
   lastFieldAnalysisMessage,
   lastFieldAnalysisError,
   lastFieldAnalysisPayload,
+  lastRuntimeRequestMessage,
+  lastRuntimeRequestError,
+  lastRuntimePayload,
+  lastRuntimeResult,
   roundCheckpointDirty,
   sourceMessageId,
 } = storeToRefs(store);
@@ -632,6 +837,11 @@ const battleProfileDraft = ref<BattleProfile | null>(null);
 const outputMode = ref<BattleSession['output_mode']>('summary_only');
 const summaryDraft = ref('');
 const fullLogDraft = ref('');
+const manualFieldPath = ref('');
+const runtimePlayerCommand = ref('');
+const runtimeDiceInputsDraft = ref('{}');
+const runtimeExtraInstructions = ref('');
+const runtimeDraftError = ref('');
 const canRemoveApiProfile = computed(() => apiProfiles.value.length > 1);
 const canRemoveBattleProfile = computed(() => battleProfiles.value.length > 1);
 const activePromptKey = ref<BattlePromptTemplateKey>('field_analysis');
@@ -645,6 +855,14 @@ const promptTemplateOptions: Array<{ key: BattlePromptTemplateKey; label: string
 ];
 const analyzedFields = computed(() => battleProfileDraft.value?.field_selection.selected_fields ?? []);
 const analysisWarnings = computed(() => battleProfileDraft.value?.field_selection.analysis_warnings ?? []);
+const fieldTree = computed(() => buildBattleFieldTree(mainState.value as Record<string, unknown>));
+const selectedFieldPaths = computed(() => analyzedFields.value.map(field => field.path));
+const selectedDataExtraction = computed(() =>
+  extractSelectedBattleData(mainState.value as Record<string, unknown>, analyzedFields.value),
+);
+const selectedDataPreview = computed(() => selectedDataExtraction.value.selectedData);
+const selectedDataWarnings = computed(() => selectedDataExtraction.value.warnings);
+const enabledFieldCount = computed(() => analyzedFields.value.filter(field => field.enabled).length);
 const activePromptTemplate = computed<BattlePromptTemplate | null>(() => {
   if (!battleProfileDraft.value) {
     return null;
@@ -795,6 +1013,124 @@ const runFieldAnalysis = async () => {
     return;
   }
   await store.runBattleFieldAnalysis(battleProfileDraft.value);
+};
+const patchFieldSelectionDraft = (fields: BattleProfile['field_selection']['selected_fields']) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  battleProfileDraft.value = {
+    ...battleProfileDraft.value,
+    field_selection: buildUpdatedFieldSelectionConfig(battleProfileDraft.value.field_selection, fields),
+  };
+};
+const addFieldFromTree = (path: string) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+
+  const nextField = createBattleSelectedFieldFromState(mainState.value as Record<string, unknown>, path, 'manual');
+  const nextFields = upsertBattleSelectedField(battleProfileDraft.value.field_selection.selected_fields, nextField);
+  patchFieldSelectionDraft(nextFields);
+};
+const addManualField = () => {
+  if (!manualFieldPath.value.trim()) {
+    return;
+  }
+  addFieldFromTree(manualFieldPath.value);
+  manualFieldPath.value = '';
+};
+const updateSelectedField = (path: string, patch: Partial<BattleProfile['field_selection']['selected_fields'][number]>) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  patchFieldSelectionDraft(
+    battleProfileDraft.value.field_selection.selected_fields.map(field =>
+      field.path === path ? { ...field, ...patch } : field,
+    ),
+  );
+};
+const toggleSelectedField = (path: string) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  patchFieldSelectionDraft(
+    battleProfileDraft.value.field_selection.selected_fields.map(field =>
+      field.path === path ? { ...field, enabled: !field.enabled } : field,
+    ),
+  );
+};
+const removeSelectedField = (path: string) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  patchFieldSelectionDraft(battleProfileDraft.value.field_selection.selected_fields.filter(field => field.path !== path));
+};
+const parseRuntimeDiceInputs = () => {
+  const draft = runtimeDiceInputsDraft.value.trim();
+  if (!draft) {
+    return {};
+  }
+  const parsed = JSON.parse(draft);
+  if (!_.isPlainObject(parsed)) {
+    throw new Error('dice_inputs 必须是 JSON 对象');
+  }
+  return parsed as Record<string, unknown>;
+};
+const buildRuntimeRequestOptions = () => ({
+  playerCommand: runtimePlayerCommand.value,
+  diceInputs: parseRuntimeDiceInputs(),
+  extraInstructions: runtimeExtraInstructions.value,
+});
+const runRuntimeRequest = async (request: () => Promise<void>) => {
+  runtimeDraftError.value = '';
+  try {
+    await request();
+  } catch (error) {
+    if (!lastRuntimeRequestError.value) {
+      runtimeDraftError.value = error instanceof Error ? error.message : String(error);
+    }
+  }
+};
+const sendSingleRound = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  let options;
+  try {
+    options = buildRuntimeRequestOptions();
+  } catch (error) {
+    runtimeDraftError.value = error instanceof Error ? error.message : String(error);
+    return;
+  }
+  await runRuntimeRequest(() => store.sendSingleRoundRequest(battleProfileDraft.value!, selectedDataPreview.value, options));
+};
+const sendFullBattle = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  let options;
+  try {
+    options = buildRuntimeRequestOptions();
+  } catch (error) {
+    runtimeDraftError.value = error instanceof Error ? error.message : String(error);
+    return;
+  }
+  await runRuntimeRequest(() => store.sendFullBattleRequest(battleProfileDraft.value!, selectedDataPreview.value, options));
+};
+const sendLootResolution = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  let options;
+  try {
+    options = buildRuntimeRequestOptions();
+  } catch (error) {
+    runtimeDraftError.value = error instanceof Error ? error.message : String(error);
+    return;
+  }
+  await runRuntimeRequest(() =>
+    store.sendLootResolutionRequest(battleProfileDraft.value!, selectedDataPreview.value, options),
+  );
 };
 const exportPromptConfig = () => {
   if (!battleProfileDraft.value) {

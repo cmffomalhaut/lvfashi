@@ -7,12 +7,21 @@ import {
   type BattleApiProfile,
   type BattleFieldAnalysisPayload,
   type BattleFieldAnalysisResult,
+  type BattleFullResult,
+  type BattleLootResult,
   type BattleProfile,
+  type BattleRoundResult,
   type BattleFrontendSettings,
 } from '../../脚本/战斗/ai-profile.ts';
 import { fetchBattleApiModels, testBattleApiConnection } from '../../脚本/战斗/api-client.ts';
 import { analyzeBattleFields } from '../../脚本/战斗/field-analysis.ts';
 import { battleFrontendSettingsAccess } from '../../脚本/战斗/frontend-settings.ts';
+import {
+  requestBattleFullBattle,
+  requestBattleLootResolution,
+  requestBattleSingleRound,
+  type BattleRuntimeRequestOptions,
+} from '../../脚本/战斗/runtime-ai.ts';
 import { battleSessionController } from '../../脚本/战斗/session.ts';
 
 function resolveLatestMessageId(): number {
@@ -26,6 +35,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const isResolving = ref(false);
   const isApiBusy = ref(false);
   const isFieldAnalysisBusy = ref(false);
+  const isRuntimeRequestBusy = ref(false);
   const lastResolveError = ref('');
   const lastApiMessage = ref('');
   const lastApiError = ref('');
@@ -33,6 +43,10 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const lastFieldAnalysisError = ref('');
   const lastFieldAnalysisPayload = ref<BattleFieldAnalysisPayload | null>(null);
   const lastFieldAnalysisResult = ref<BattleFieldAnalysisResult | null>(null);
+  const lastRuntimeRequestMessage = ref('');
+  const lastRuntimeRequestError = ref('');
+  const lastRuntimePayload = ref<Record<string, unknown> | null>(null);
+  const lastRuntimeResult = ref<BattleRoundResult | BattleFullResult | BattleLootResult | null>(null);
 
   const refresh = () => {
     canonicalState.value = stateAccess.readCanonicalState();
@@ -110,6 +124,21 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     }
   };
 
+  const runRuntimeRequestAction = async <T>(action: () => Promise<T>) => {
+    isRuntimeRequestBusy.value = true;
+    lastRuntimeRequestMessage.value = '';
+    lastRuntimeRequestError.value = '';
+
+    try {
+      return await action();
+    } catch (error) {
+      lastRuntimeRequestError.value = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      isRuntimeRequestBusy.value = false;
+    }
+  };
+
   const createApiProfile = async () => {
     settings.value = await battleFrontendSettingsAccess.upsertApiProfile(createDefaultBattleApiProfile(), {
       makeActive: true,
@@ -150,7 +179,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     settings.value = await battleFrontendSettingsAccess.setActiveBattleProfile(profileId);
   };
 
-  const resolveBattleApiProfileForAnalysis = (profile: BattleProfile): BattleApiProfile => {
+  const resolveBattleApiProfile = (profile: BattleProfile): BattleApiProfile => {
     const targetId = profile.api_profile_id || settings.value.active_api_profile_id;
     const resolved =
       settings.value.api_profiles.find(item => item.id === targetId) ??
@@ -197,7 +226,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
 
   const runBattleFieldAnalysis = async (profile: BattleProfile) =>
     runFieldAnalysisAction(async () => {
-      const apiProfile = resolveBattleApiProfileForAnalysis(profile);
+      const apiProfile = resolveBattleApiProfile(profile);
       const analysis = await analyzeBattleFields(apiProfile, profile, mainState.value as Record<string, unknown>);
       lastFieldAnalysisPayload.value = analysis.payload;
       lastFieldAnalysisResult.value = analysis.result;
@@ -212,6 +241,72 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
         ? `字段分析完成，已生成 ${analysis.result.fields.length} 条建议`
         : '字段分析完成，但 AI 没有返回有效字段建议';
       return analysis.result;
+    });
+
+  const createRuntimeRequestOptions = (
+    profile: BattleProfile,
+    options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
+  ): BattleRuntimeRequestOptions => ({
+    ...options,
+    worldbookContext: profile.context.include_worldbook_context ? [] : [],
+    environmentContext: profile.context.include_environment_context ? klona(mainState.value.世界 as Record<string, unknown>) : {},
+  });
+
+  const sendSingleRoundRequest = async (
+    profile: BattleProfile,
+    selectedData: Record<string, unknown>,
+    options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
+  ) =>
+    runRuntimeRequestAction(async () => {
+      const apiProfile = resolveBattleApiProfile(profile);
+      const execution = await requestBattleSingleRound(
+        apiProfile,
+        profile,
+        selectedData,
+        createRuntimeRequestOptions(profile, options),
+      );
+      lastRuntimePayload.value = execution.payload;
+      lastRuntimeResult.value = execution.result;
+      lastRuntimeRequestMessage.value = '单回合请求已完成';
+      return execution.result;
+    });
+
+  const sendFullBattleRequest = async (
+    profile: BattleProfile,
+    selectedData: Record<string, unknown>,
+    options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
+  ) =>
+    runRuntimeRequestAction(async () => {
+      const apiProfile = resolveBattleApiProfile(profile);
+      const execution = await requestBattleFullBattle(
+        apiProfile,
+        profile,
+        selectedData,
+        createRuntimeRequestOptions(profile, options),
+      );
+      lastRuntimePayload.value = execution.payload;
+      lastRuntimeResult.value = execution.result;
+      lastRuntimeRequestMessage.value = '快速整场请求已完成';
+      return execution.result;
+    });
+
+  const sendLootResolutionRequest = async (
+    profile: BattleProfile,
+    selectedData: Record<string, unknown>,
+    options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
+  ) =>
+    runRuntimeRequestAction(async () => {
+      const apiProfile = resolveBattleApiProfile(profile);
+      const execution = await requestBattleLootResolution(
+        apiProfile,
+        profile,
+        selectedData,
+        createRuntimeRequestOptions(profile, options),
+      );
+      lastRuntimePayload.value = execution.payload;
+      lastRuntimeResult.value = execution.result;
+      lastRuntimeRequestMessage.value = '战利品结算请求已完成';
+      return execution.result;
     });
 
   const startBattle = () => runAndRefresh(() => battleSessionController.startBattle(sourceMessageId.value));
@@ -281,6 +376,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     isResolving,
     isApiBusy,
     isFieldAnalysisBusy,
+    isRuntimeRequestBusy,
     lastResolveError,
     lastApiMessage,
     lastApiError,
@@ -288,6 +384,10 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     lastFieldAnalysisError,
     lastFieldAnalysisPayload,
     lastFieldAnalysisResult,
+    lastRuntimeRequestMessage,
+    lastRuntimeRequestError,
+    lastRuntimePayload,
+    lastRuntimeResult,
     refresh,
     refreshSettings,
     createApiProfile,
@@ -301,6 +401,9 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     discoverApiModels,
     testApiProfile,
     runBattleFieldAnalysis,
+    sendSingleRoundRequest,
+    sendFullBattleRequest,
+    sendLootResolutionRequest,
     startBattle,
     resumeOrRebuild,
     forceRebuild,
