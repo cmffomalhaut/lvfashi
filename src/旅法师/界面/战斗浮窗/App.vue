@@ -826,7 +826,7 @@
                   · {{ isResolving || isRuntimeRequestBusy ? 'AI 处理中' : '待命' }}
                 </span>
                 <div class="battle-message__actions">
-                  <button class="btn btn--ghost btn--sm" type="button" @click="refreshBattleData">刷新当前回合</button>
+                  <button class="btn btn--ghost btn--sm" type="button" @click="refreshBattleData">重新读取数据</button>
                   <button class="btn btn--warn btn--sm" type="button" @click="forceRebuild">重建战斗</button>
                 </div>
               </div>
@@ -1420,7 +1420,7 @@ const closeWindow = () => {
 };
 const refreshBattleData = () => {
   store.refresh();
-  refreshNotice.value = `已刷新当前战斗数据（楼层 ${sourceMessageId.value}）`;
+  refreshNotice.value = `已重新读取当前楼层数据（楼层 ${sourceMessageId.value}）`;
 };
 const showDiceDialog = (animate = true) => {
   if (diceAnimationTimer) {
