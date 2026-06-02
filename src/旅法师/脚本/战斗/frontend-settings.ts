@@ -27,7 +27,34 @@ import {
 
 export const BATTLE_FRONTEND_SETTINGS_VERSION = 1;
 export const BATTLE_FRONTEND_SETTINGS_STORAGE_KEY = 'battle_frontend_settings';
-export const DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION = Object.freeze({ type: 'script' } as const);
+
+function resolveBattleFrontendSettingsVariableOptions(): VariableOption[] {
+  const options: VariableOption[] = [];
+  const frameScriptId =
+    typeof window !== 'undefined'
+      ? (window.frameElement?.getAttribute('script_id') ?? window.frameElement?.getAttribute('data-script-id') ?? '').trim()
+      : '';
+  if (frameScriptId) {
+    options.push({ type: 'script', script_id: frameScriptId });
+  }
+  try {
+    options.push({ type: 'script', script_id: getScriptId() });
+  } catch {}
+  options.push({ type: 'script' });
+
+  const deduped: VariableOption[] = [];
+  const seen = new Set<string>();
+  for (const option of options) {
+    const key =
+      option.type === 'script' ? `script:${option.script_id ?? ''}` : `${option.type}:${(option as { message_id?: string | number }).message_id ?? ''}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(option);
+  }
+  return deduped;
+}
 
 const LEGACY_ROOT_KEYS = [
   'version',
@@ -158,6 +185,7 @@ export const BattleFieldSelectionConfigSchema = z
     selected_fields: z.array(BattleSelectedFieldSchema).catch([]).prefault([]),
     analysis_warnings: z.array(z.string()).catch([]).prefault([]),
     last_analysis_input_hash: trimmedString(createDefaultBattleFieldSelectionConfig().last_analysis_input_hash),
+    source_data_hash: trimmedString(createDefaultBattleFieldSelectionConfig().source_data_hash),
     last_analysis_at: nullableFiniteNumber(),
     manual_review_required: booleanWithFallback(createDefaultBattleFieldSelectionConfig().manual_review_required),
   })
@@ -190,6 +218,23 @@ export const BattleContextConfigSchema = z
     include_environment_context: booleanWithFallback(createDefaultBattleContextConfig().include_environment_context),
     include_floor_context: booleanWithFallback(createDefaultBattleContextConfig().include_floor_context),
     include_recent_battle_report: booleanWithFallback(createDefaultBattleContextConfig().include_recent_battle_report),
+    worldbook_max_chars: finiteNumber(createDefaultBattleContextConfig().worldbook_max_chars),
+    imported_worldbooks: z
+      .array(
+        z
+          .object({
+            id: trimmedString(''),
+            name: trimmedString('未命名世界书'),
+            source: z.enum(['character', 'global', 'manual']).catch('manual').prefault('manual'),
+            enabled: booleanWithFallback(true),
+            content: z.string().catch('').prefault(''),
+            entry_count: finiteNumber(0),
+            imported_at: finiteNumber(0),
+          })
+          .prefault({}),
+      )
+      .catch([])
+      .prefault([]),
     extra_context_text: z.string().catch('').prefault(''),
   })
   .prefault({});
@@ -299,6 +344,23 @@ function resolveActiveProfileId<T extends { id: string }>(profiles: T[], activeI
   return profiles[0]?.id ?? null;
 }
 
+function hydratePromptDefaults(promptConfig: BattlePromptConfig): BattlePromptConfig {
+  const defaults = createDefaultBattlePromptConfig();
+  return BattlePromptConfigSchema.parse(
+    _.mapValues(defaults, (defaultTemplate, key) => {
+      const current = promptConfig[key as keyof BattlePromptConfig];
+      return {
+        ...defaultTemplate,
+        ...current,
+        system_prompt: current.system_prompt.trim() || defaultTemplate.system_prompt,
+        user_prompt: current.user_prompt.trim() || defaultTemplate.user_prompt,
+        output_contract_prompt: current.output_contract_prompt.trim() || defaultTemplate.output_contract_prompt,
+      };
+    }),
+    { reportInput: true },
+  );
+}
+
 function normalizeBattleFrontendSettings(settings: BattleFrontendSettings): BattleFrontendSettings {
   const next = klona(settings);
   next.version = BATTLE_FRONTEND_SETTINGS_VERSION;
@@ -319,6 +381,7 @@ function normalizeBattleFrontendSettings(settings: BattleFrontendSettings): Batt
     ...profile,
     api_profile_id:
       profile.api_profile_id && validApiProfileIds.has(profile.api_profile_id) ? profile.api_profile_id : activeApiProfileId,
+    prompts: hydratePromptDefaults(profile.prompts),
   }));
 
   const activeBattleProfileId = resolveActiveProfileId(battleProfiles, next.active_battle_profile_id);
@@ -376,43 +439,77 @@ function buildSavedBattleProfile(profile: BattleProfile, previous: BattleProfile
 }
 
 export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSettingsBindings = runtimeBindings) {
-  const read = (variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION): BattleFrontendSettings =>
-    migrateBattleFrontendSettings(extractSettingsCandidate(bindings.readVariables(variableOption)));
+  const readVariablesWithFallback = (preferredOption?: VariableOption): Record<string, any> => {
+    const candidates = preferredOption
+      ? [preferredOption, ...resolveBattleFrontendSettingsVariableOptions().filter(option => !_.isEqual(option, preferredOption))]
+      : resolveBattleFrontendSettingsVariableOptions();
+    let lastReadVariables: Record<string, any> = {};
+
+    for (const option of candidates) {
+      try {
+        const variables = bindings.readVariables(option);
+        lastReadVariables = variables;
+        if (_.has(variables, BATTLE_FRONTEND_SETTINGS_STORAGE_KEY) || hasLegacyRootStorage(variables)) {
+          return variables;
+        }
+      } catch {}
+    }
+
+    return lastReadVariables;
+  };
+
+  const syncMirroredScopes = async (settings: BattleFrontendSettings, primaryOption?: VariableOption) => {
+    const candidateOptions = resolveBattleFrontendSettingsVariableOptions();
+    const mirrorOptions = primaryOption
+      ? candidateOptions.filter(option => !_.isEqual(option, primaryOption))
+      : candidateOptions.slice(1);
+
+    for (const option of mirrorOptions) {
+      await Promise.resolve(
+        bindings.writeVariables(variables => writeSettingsToVariables(variables, settings, hasLegacyRootStorage(variables)), option),
+      );
+    }
+  };
+
+  const read = (variableOption?: VariableOption): BattleFrontendSettings =>
+    migrateBattleFrontendSettings(extractSettingsCandidate(readVariablesWithFallback(variableOption)));
 
   const mutateAndPersist = async (
     mutate: SettingsMutation,
-    variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+    variableOption?: VariableOption,
   ): Promise<BattleFrontendSettings> => {
     let resolvedSettings = createDefaultBattleFrontendSettings();
+    const primaryOption = variableOption ?? resolveBattleFrontendSettingsVariableOptions()[0] ?? { type: 'script' };
 
     await Promise.resolve(
       bindings.writeVariables(async variables => {
-        const before = migrateBattleFrontendSettings(extractSettingsCandidate(variables));
+        const before = migrateBattleFrontendSettings(extractSettingsCandidate(readVariablesWithFallback(primaryOption)));
         const draft = klona(before);
         const mutated = await mutate(draft, before);
         const normalized = normalizeBattleFrontendSettings(mutated ?? draft);
         resolvedSettings = normalized;
         return writeSettingsToVariables(variables, normalized, hasLegacyRootStorage(variables));
-      }, variableOption),
+      }, primaryOption),
     );
+    await syncMirroredScopes(resolvedSettings, primaryOption);
 
     return resolvedSettings;
   };
 
   return {
     read,
-    load: (variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION) =>
+    load: (variableOption?: VariableOption) =>
       mutateAndPersist(draft => draft, variableOption),
     replace: (
       settings: BattleFrontendSettings,
-      variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+      variableOption?: VariableOption,
     ) => mutateAndPersist(() => settings, variableOption),
-    update: (mutate: SettingsMutation, variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION) =>
+    update: (mutate: SettingsMutation, variableOption?: VariableOption) =>
       mutateAndPersist(mutate, variableOption),
     upsertApiProfile: (
       profile: BattleApiProfile,
       options: UpsertProfileOptions = {},
-      variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+      variableOption?: VariableOption,
     ) =>
       mutateAndPersist(draft => {
         const currentIndex = draft.api_profiles.findIndex(current => current.id === profile.id);
@@ -431,7 +528,7 @@ export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSetti
       }, variableOption),
     removeApiProfile: (
       profileId: string,
-      variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+      variableOption?: VariableOption,
     ) =>
       mutateAndPersist(draft => {
         draft.api_profiles = draft.api_profiles.filter(profile => profile.id !== profileId);
@@ -444,7 +541,7 @@ export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSetti
       }, variableOption),
     setActiveApiProfile: (
       profileId: string | null,
-      variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+      variableOption?: VariableOption,
     ) =>
       mutateAndPersist(draft => {
         draft.active_api_profile_id = profileId;
@@ -452,7 +549,7 @@ export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSetti
     upsertBattleProfile: (
       profile: BattleProfile,
       options: UpsertProfileOptions = {},
-      variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+      variableOption?: VariableOption,
     ) =>
       mutateAndPersist(draft => {
         const currentIndex = draft.battle_profiles.findIndex(current => current.id === profile.id);
@@ -471,7 +568,7 @@ export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSetti
       }, variableOption),
     removeBattleProfile: (
       profileId: string,
-      variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+      variableOption?: VariableOption,
     ) =>
       mutateAndPersist(draft => {
         draft.battle_profiles = draft.battle_profiles.filter(profile => profile.id !== profileId);
@@ -481,7 +578,7 @@ export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSetti
       }, variableOption),
     setActiveBattleProfile: (
       profileId: string | null,
-      variableOption: VariableOption = DEFAULT_BATTLE_FRONTEND_SETTINGS_VARIABLE_OPTION,
+      variableOption?: VariableOption,
     ) =>
       mutateAndPersist(draft => {
         draft.active_battle_profile_id = profileId;

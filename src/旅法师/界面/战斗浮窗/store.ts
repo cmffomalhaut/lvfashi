@@ -15,6 +15,7 @@ import {
   type BattleFieldAnalysisPayload,
   type BattleFieldAnalysisResult,
   type BattleFullResult,
+  type BattleImportedWorldbook,
   type BattleLootResult,
   type BattleProfile,
   type BattleRoundResult,
@@ -45,6 +46,14 @@ import {
   projectMainStateFromBattleSession,
 } from '../../脚本/战斗/runtime-session.ts';
 import { battleSessionController } from '../../脚本/战斗/session.ts';
+import {
+  createImportedWorldbook,
+  listActiveBattleWorldbooks,
+  listBattleWorldbookNames,
+  loadBattleWorldbookContent,
+  serializeImportedWorldbooks,
+  upsertImportedWorldbooks,
+} from '../../脚本/战斗/worldbook.ts';
 
 function resolveLatestMessageId(): number {
   const hosts = [window, window.parent, window.top].filter((host): host is Window => Boolean(host));
@@ -99,9 +108,13 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const isApiBusy = ref(false);
   const isFieldAnalysisBusy = ref(false);
   const isRuntimeRequestBusy = ref(false);
+  const isWorldbookBusy = ref(false);
   const lastResolveError = ref('');
   const lastApiMessage = ref('');
   const lastApiError = ref('');
+  const worldbookNames = ref<string[]>([]);
+  const lastWorldbookMessage = ref('');
+  const lastWorldbookError = ref('');
   const lastFieldAnalysisMessage = ref('');
   const lastFieldAnalysisError = ref('');
   const lastFieldAnalysisPayload = ref<BattleFieldAnalysisPayload | null>(null);
@@ -450,11 +463,98 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
   ): BattleRuntimeRequestOptions => ({
     ...options,
-    worldbookContext: profile.context.include_worldbook_context ? [] : [],
+    worldbookContext: profile.context.include_worldbook_context
+      ? serializeImportedWorldbooks(profile.context.imported_worldbooks, profile.context.worldbook_max_chars)
+      : [],
     environmentContext: profile.context.include_environment_context
       ? klona(runtimeMainState.value.世界 as Record<string, unknown>)
       : {},
+    extraInstructions: [profile.context.extra_context_text.trim(), options.extraInstructions?.trim() ?? '']
+      .filter(Boolean)
+      .join('\n\n'),
   });
+
+  const runWorldbookAction = async <T>(action: () => Promise<T>) => {
+    isWorldbookBusy.value = true;
+    lastWorldbookMessage.value = '';
+    lastWorldbookError.value = '';
+    try {
+      return await action();
+    } catch (error) {
+      lastWorldbookError.value = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      isWorldbookBusy.value = false;
+    }
+  };
+
+  const saveBattleProfileWorldbooks = async (profile: BattleProfile, importedWorldbooks: BattleImportedWorldbook[]) => {
+    const nextProfile = {
+      ...profile,
+      context: {
+        ...profile.context,
+        imported_worldbooks: importedWorldbooks,
+      },
+    };
+    await saveBattleProfile(nextProfile, { makeActive: true });
+    return nextProfile;
+  };
+
+  const refreshWorldbookNames = async () =>
+    runWorldbookAction(async () => {
+      worldbookNames.value = await listBattleWorldbookNames();
+      lastWorldbookMessage.value = worldbookNames.value.length
+        ? `已读取 ${worldbookNames.value.length} 本世界书`
+        : '未读取到可选世界书';
+      return worldbookNames.value;
+    });
+
+  const importActiveWorldbooks = async (profile: BattleProfile) =>
+    runWorldbookAction(async () => {
+      const activeWorldbooks = await listActiveBattleWorldbooks();
+      const imported = activeWorldbooks.map(worldbook => createImportedWorldbook(worldbook));
+      const merged = upsertImportedWorldbooks(profile.context.imported_worldbooks, imported, { replaceAutoSources: true });
+      await saveBattleProfileWorldbooks(profile, merged);
+      lastWorldbookMessage.value = imported.length
+        ? `已自动导入 ${imported.length} 本角色/全局世界书`
+        : '未检测到角色绑定或全局启用世界书';
+      return merged;
+    });
+
+  const importWorldbookByName = async (profile: BattleProfile, worldbookName: string) =>
+    runWorldbookAction(async () => {
+      const name = worldbookName.trim();
+      if (!name) {
+        throw new Error('请选择世界书');
+      }
+      const loaded = await loadBattleWorldbookContent(name, 'manual');
+      if (!loaded) {
+        throw new Error(`世界书“${name}”没有可导入的启用条目`);
+      }
+      const imported = createImportedWorldbook(loaded, 'manual');
+      const merged = upsertImportedWorldbooks(profile.context.imported_worldbooks, [imported]);
+      await saveBattleProfileWorldbooks(profile, merged);
+      lastWorldbookMessage.value = `已导入世界书“${name}”`;
+      return merged;
+    });
+
+  const toggleImportedWorldbook = async (profile: BattleProfile, worldbookId: string, enabled: boolean) =>
+    runWorldbookAction(async () => {
+      const imported = profile.context.imported_worldbooks.map(worldbook =>
+        worldbook.id === worldbookId ? { ...worldbook, enabled } : worldbook,
+      );
+      await saveBattleProfileWorldbooks(profile, imported);
+      lastWorldbookMessage.value = enabled ? '世界书已启用' : '世界书已停用';
+      return imported;
+    });
+
+  const removeImportedWorldbook = async (profile: BattleProfile, worldbookId: string) =>
+    runWorldbookAction(async () => {
+      const imported = profile.context.imported_worldbooks.filter(worldbook => worldbook.id !== worldbookId);
+      await saveBattleProfileWorldbooks(profile, imported);
+      lastWorldbookMessage.value = '世界书已删除';
+      return imported;
+    });
 
   const createSelectedRuntimeData = (profile: BattleProfile): Record<string, unknown> => {
     if (_.isEmpty(runtimeStatData.value)) {
@@ -890,9 +990,13 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     isApiBusy,
     isFieldAnalysisBusy,
     isRuntimeRequestBusy,
+    isWorldbookBusy,
     lastResolveError,
     lastApiMessage,
     lastApiError,
+    worldbookNames,
+    lastWorldbookMessage,
+    lastWorldbookError,
     lastFieldAnalysisMessage,
     lastFieldAnalysisError,
     lastFieldAnalysisPayload,
@@ -916,6 +1020,11 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     setActiveBattleProfile,
     discoverApiModels,
     testApiProfile,
+    refreshWorldbookNames,
+    importActiveWorldbooks,
+    importWorldbookByName,
+    toggleImportedWorldbook,
+    removeImportedWorldbook,
     runBattleFieldAnalysis,
     retryLastFieldAnalysis,
     sendSingleRoundRequest,

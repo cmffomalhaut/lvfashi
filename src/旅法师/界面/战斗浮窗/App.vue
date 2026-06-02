@@ -99,6 +99,15 @@
               <input v-model="apiProfileDraft.base_url" class="form-control" type="text" placeholder="https://example.com/v1" />
             </label>
             <label class="form-field form-field--wide">
+              <span>接口预设</span>
+              <select class="form-control" :disabled="isApiBusy" @change="applyApiEndpointPreset">
+                <option value="">选择后写入接口地址和模型列表路径</option>
+                <option v-for="preset in apiEndpointPresets" :key="preset.baseUrl" :value="preset.baseUrl">
+                  {{ preset.label }}
+                </option>
+              </select>
+            </label>
+            <label class="form-field form-field--wide">
               <span>密钥</span>
               <input v-model="apiProfileDraft.api_key" class="form-control" type="password" placeholder="sk-..." />
             </label>
@@ -131,6 +140,8 @@
           <div class="button-grid settings-footer-actions">
             <button class="btn" :disabled="isApiBusy" @click="discoverModels">拉取模型列表</button>
             <button class="btn btn--primary" :disabled="isApiBusy" @click="testCurrentApiProfile">测试连接</button>
+            <button class="btn" :disabled="isApiBusy" @click="saveAndDiscoverModels">保存并拉取模型</button>
+            <button class="btn btn--primary" :disabled="isApiBusy" @click="saveAndTestApiProfile">保存并测试</button>
           </div>
         </article>
       </div>
@@ -402,6 +413,77 @@
             >
               {{ battleProfileDraft.rules.schema_hint_enabled ? 'Schema Hint 已启用' : 'Schema Hint 已禁用' }}
             </button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'worldbook'" class="card">
+      <div class="section-head">
+        <div>
+          <h2>世界书导入</h2>
+          <p class="hint">导入后的内容会保存到当前 BattleProfile，并在正式运行时写入 `runtime_payload.worldbook_context`。</p>
+        </div>
+        <div class="button-grid">
+          <button class="btn" :disabled="isWorldbookBusy" @click="refreshWorldbooks">刷新列表</button>
+          <button class="btn btn--primary" :disabled="isWorldbookBusy" @click="autoImportWorldbooks">自动导入激活世界书</button>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <article class="settings-panel">
+          <div class="form-grid">
+            <label class="check-field">
+              <input v-model="battleProfileDraft.context.include_worldbook_context" type="checkbox" />
+              <span>运行时注入已启用世界书</span>
+            </label>
+            <label class="form-field">
+              <span>最大注入字符数</span>
+              <input v-model.number="battleProfileDraft.context.worldbook_max_chars" class="form-control" type="number" min="0" step="500" />
+            </label>
+            <label class="form-field form-field--wide">
+              <span>手动选择世界书</span>
+              <select v-model="selectedWorldbookName" class="form-control" :disabled="isWorldbookBusy">
+                <option value="">先刷新列表再选择</option>
+                <option v-for="name in worldbookNames" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="button-grid settings-footer-actions">
+            <button class="btn" :disabled="isWorldbookBusy || !selectedWorldbookName" @click="manualImportWorldbook">导入整本</button>
+            <button class="btn btn--primary" :disabled="isWorldbookBusy" @click="saveBattleProfileDraft">保存世界书设置</button>
+          </div>
+
+          <p v-if="lastWorldbookMessage" class="hint hint--ok">{{ lastWorldbookMessage }}</p>
+          <p v-if="lastWorldbookError" class="hint hint--error">{{ lastWorldbookError }}</p>
+        </article>
+
+        <article class="settings-panel">
+          <div class="preview-block">
+            <h3>已导入世界书</h3>
+            <p class="hint">
+              {{ importedWorldbooks.length }} 本，启用 {{ enabledImportedWorldbookCount }} 本，预计注入 {{ serializedWorldbookPreview.length }} 段。
+            </p>
+            <ul v-if="importedWorldbooks.length" class="info-list">
+              <li v-for="worldbook in importedWorldbooks" :key="worldbook.id">
+                <label class="check-field">
+                  <input
+                    :checked="worldbook.enabled"
+                    type="checkbox"
+                    :disabled="isWorldbookBusy"
+                    @change="toggleWorldbookFromEvent(worldbook.id, $event)"
+                  />
+                  <span>{{ worldbook.name }} · {{ formatWorldbookSource(worldbook.source) }} · {{ worldbook.entry_count }} 条 · {{ worldbook.content.length }} 字</span>
+                </label>
+                <button class="btn btn--ghost btn--sm" type="button" :disabled="isWorldbookBusy" @click="removeWorldbook(worldbook.id)">删除</button>
+              </li>
+            </ul>
+            <p v-else class="hint">暂无导入世界书。</p>
+          </div>
+          <div v-if="serializedWorldbookPreview.length" class="preview-block">
+            <h3>运行时注入预览</h3>
+            <pre class="json-preview">{{ serializedWorldbookPreview.join('\n\n') }}</pre>
           </div>
         </article>
       </div>
@@ -779,13 +861,13 @@
                 <span class="message-label">整场摘要</span>
                 <p v-if="latestFullBattleReport">{{ latestFullBattleReport }}</p>
                 <ul v-if="latestFullBattleResult.rounds.length" class="compact-list">
-                  <li v-for="round in latestFullBattleResult.rounds" :key="round.round_index">
-                    第{{ round.round_index }}回合：{{ formatFullBattleRoundDigest(round) }}
+                  <li v-for="(round, index) in latestFullBattleResult.rounds" :key="`${round.round_index}-${index}`">
+                    第{{ resolveFullBattleRoundIndex(round, index) }}回合：{{ formatFullBattleRoundDigest(round) }}
                   </li>
                 </ul>
-                <ul v-if="latestFullBattleResult.loot_result.loot_items.length" class="compact-list">
-                  <li v-for="item in latestFullBattleResult.loot_result.loot_items" :key="item.name || item.description">
-                    战利品：{{ item.name || '未命名' }} x{{ item.quantity || 1 }}{{ item.description ? `，${item.description}` : '' }}
+                <ul v-if="latestFullBattleLootLines.length" class="compact-list">
+                  <li v-for="line in latestFullBattleLootLines" :key="line">
+                    战利品：{{ line }}
                   </li>
                 </ul>
               </div>
@@ -856,6 +938,7 @@ import type {
   BattleProfile,
   BattlePromptConfig,
   BattlePromptTemplate,
+  BattleWorldbookSource,
 } from '../../脚本/战斗/ai-profile.ts';
 import {
   buildBattleFieldTree,
@@ -868,13 +951,14 @@ import {
   upsertBattleSelectedField,
 } from '../../脚本/战斗/field-selection.ts';
 import { BattlePromptConfigSchema } from '../../脚本/战斗/frontend-settings.ts';
+import { serializeImportedWorldbooks } from '../../脚本/战斗/worldbook.ts';
 import type { BattleSession } from '../../schema.ts';
 import FieldTreeNode from './FieldTreeNode.vue';
 import { useBattleWindowStore } from './store';
 
 type BattlePromptTemplateKey = keyof BattlePromptConfig;
 type BattleUiTab = 'play' | 'settings';
-type SettingsSectionKey = 'api' | 'prompt' | 'rules' | 'fields' | 'runtime';
+type SettingsSectionKey = 'api' | 'prompt' | 'rules' | 'worldbook' | 'fields' | 'runtime';
 
 const store = useBattleWindowStore();
 const {
@@ -892,9 +976,13 @@ const {
   isApiBusy,
   isFieldAnalysisBusy,
   isRuntimeRequestBusy,
+  isWorldbookBusy,
   lastResolveError,
   lastApiMessage,
   lastApiError,
+  worldbookNames,
+  lastWorldbookMessage,
+  lastWorldbookError,
   lastFieldAnalysisMessage,
   lastFieldAnalysisError,
   lastFieldAnalysisPayload,
@@ -920,6 +1008,7 @@ const manualFieldPath = ref('');
 const runtimePlayerCommand = ref('');
 const runtimeDiceInputsDraft = ref('{}');
 const runtimeExtraInstructions = ref('');
+const selectedWorldbookName = ref('');
 const runtimeDraftError = ref('');
 const uiActionError = ref('');
 const lastDiceMessage = ref('');
@@ -934,8 +1023,15 @@ const settingsSections: Array<{ key: SettingsSectionKey; label: string }> = [
   { key: 'api', label: 'API' },
   { key: 'prompt', label: '提示词' },
   { key: 'rules', label: '规则' },
+  { key: 'worldbook', label: '世界书' },
   { key: 'fields', label: '字段' },
   { key: 'runtime', label: '运行' },
+];
+const apiEndpointPresets = [
+  { label: 'OpenAI 兼容 /v1', baseUrl: 'https://api.openai.com/v1', modelFetchPath: '/models' },
+  { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelFetchPath: '/models' },
+  { label: '本地 OpenAI 兼容服务', baseUrl: 'http://127.0.0.1:8000/v1', modelFetchPath: '/models' },
+  { label: 'Ollama OpenAI 兼容', baseUrl: 'http://127.0.0.1:11434/v1', modelFetchPath: '/models' },
 ];
 const canRemoveApiProfile = computed(() => apiProfiles.value.length > 1);
 const canRemoveBattleProfile = computed(() => battleProfiles.value.length > 1);
@@ -960,6 +1056,16 @@ const fieldTree = computed(() => buildBattleFieldTree(fieldSourceData.value));
 const selectedDataExtraction = computed(() => extractSelectedBattleData(fieldSourceData.value, fieldOverrides.value));
 const selectedDataPreview = computed(() => selectedDataExtraction.value.selectedData);
 const selectedDataWarnings = computed(() => selectedDataExtraction.value.warnings);
+const importedWorldbooks = computed(() => battleProfileDraft.value?.context.imported_worldbooks ?? []);
+const enabledImportedWorldbookCount = computed(() => importedWorldbooks.value.filter(worldbook => worldbook.enabled).length);
+const serializedWorldbookPreview = computed(() =>
+  battleProfileDraft.value
+    ? serializeImportedWorldbooks(
+        battleProfileDraft.value.context.imported_worldbooks,
+        battleProfileDraft.value.context.worldbook_max_chars,
+      )
+    : [],
+);
 const fieldOverrideCount = computed(() => fieldOverrides.value.length);
 const disabledFieldCount = computed(() => fieldOverrides.value.filter(field => !field.enabled).length);
 const accumulatedUpdateCount = computed(() => Object.keys(battleSession.value.runtime.accumulated_updates).length);
@@ -987,11 +1093,33 @@ const latestFullBattleResult = computed<BattleFullResult | null>(() =>
     : null,
 );
 const latestFullBattleReport = computed(() => latestFullBattleResult.value?.battle_report?.trim() ?? '');
+const latestFullBattleLootLines = computed(() => {
+  const result = latestFullBattleResult.value;
+  if (!result) {
+    return [];
+  }
+  const itemLines = result.loot_result.loot_items
+    .filter(item => item.name.trim() || item.description.trim() || item.reason.trim())
+    .map(item => {
+      const name = item.name.trim() || item.description.trim() || item.reason.trim();
+      const quantity = item.quantity > 1 ? ` x${item.quantity}` : '';
+      const description = item.description.trim() && item.description.trim() !== name ? `，${item.description.trim()}` : '';
+      return `${name}${quantity}${description}`;
+    });
+  if (itemLines.length) {
+    return itemLines;
+  }
+  return Object.entries(result.loot_mvu_updates).map(([key, value]) =>
+    typeof value === 'number' ? `${key}：${value >= 0 ? '+' : ''}${value}` : `${key}：${formatJson(value)}`,
+  );
+});
 const latestLootResult = computed<BattleLootResult | null>(() =>
   lastRuntimeResult.value && 'mvu_updates' in lastRuntimeResult.value ? (lastRuntimeResult.value as BattleLootResult) : null,
 );
 const formatFullBattleRoundDigest = (round: BattleFullResult['rounds'][number]) =>
   round.summary?.trim() || round.narration?.trim() || 'AI 未提供本回合摘要';
+const resolveFullBattleRoundIndex = (round: BattleFullResult['rounds'][number], index: number) =>
+  Number.isFinite(round.round_index) && round.round_index > 0 && round.round_index !== 1 ? round.round_index : index + 1;
 const chatMessages = computed(() => {
   const runtimeMessages = battleSession.value.runtime.transcript
     .filter(message => message.content.trim())
@@ -1151,6 +1279,16 @@ const formatApiProfileOptionLabel = (profile: BattleApiProfile) => {
   const model = profile.model?.trim();
   const host = profile.base_url?.trim().replace(/^https?:\/\//u, '').replace(/\/+$/u, '');
   return [name, model, host].filter(Boolean).join(' · ');
+};
+const formatWorldbookSource = (source: BattleWorldbookSource) => {
+  switch (source) {
+    case 'character':
+      return '角色绑定';
+    case 'global':
+      return '全局启用';
+    default:
+      return '手动导入';
+  }
 };
 const formatBattleProfileOptionLabel = (profile: BattleProfile) => {
   const name = profile.name?.trim() || '未命名战斗配置';
@@ -1480,6 +1618,20 @@ const removeCurrentApiProfile = async () => {
   }
   await runUiAction(() => store.removeApiProfile(apiProfileDraft.value!.id));
 };
+const applyApiEndpointPreset = (event: Event) => {
+  if (!apiProfileDraft.value) {
+    return;
+  }
+  const baseUrl = (event.target as HTMLSelectElement).value;
+  const preset = apiEndpointPresets.find(item => item.baseUrl === baseUrl);
+  if (!preset) {
+    return;
+  }
+  apiProfileDraft.value.base_url = preset.baseUrl;
+  apiProfileDraft.value.model_fetch_path = preset.modelFetchPath;
+  apiProfileDraft.value.model_discovery.response_path = 'data';
+  apiProfileDraft.value.model_discovery.use_auth_header = true;
+};
 const changeActiveBattleProfile = async (event: Event) => {
   const nextId = (event.target as HTMLSelectElement).value || null;
   await runUiAction(() => store.setActiveBattleProfile(nextId));
@@ -1497,6 +1649,54 @@ const saveBattleProfileDraft = async () => {
     await store.saveBattleProfile(draft, { makeActive: true });
     promptNotice.value = '战斗配置与 Prompt 已保存';
     promptError.value = '';
+  });
+};
+const syncDraftWorldbooks = (importedWorldbooks: BattleProfile['context']['imported_worldbooks']) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  battleProfileDraft.value.context.imported_worldbooks = klona(importedWorldbooks);
+};
+const refreshWorldbooks = async () => {
+  await runUiAction(() => store.refreshWorldbookNames());
+};
+const autoImportWorldbooks = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  await runUiAction(async () => {
+    const imported = await store.importActiveWorldbooks(battleProfileDraft.value!);
+    syncDraftWorldbooks(imported);
+  });
+};
+const manualImportWorldbook = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  await runUiAction(async () => {
+    const imported = await store.importWorldbookByName(battleProfileDraft.value!, selectedWorldbookName.value);
+    syncDraftWorldbooks(imported);
+  });
+};
+const toggleWorldbook = async (worldbookId: string, enabled: boolean) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  await runUiAction(async () => {
+    const imported = await store.toggleImportedWorldbook(battleProfileDraft.value!, worldbookId, enabled);
+    syncDraftWorldbooks(imported);
+  });
+};
+const toggleWorldbookFromEvent = async (worldbookId: string, event: Event) => {
+  await toggleWorldbook(worldbookId, (event.target as HTMLInputElement).checked);
+};
+const removeWorldbook = async (worldbookId: string) => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  await runUiAction(async () => {
+    const imported = await store.removeImportedWorldbook(battleProfileDraft.value!, worldbookId);
+    syncDraftWorldbooks(imported);
   });
 };
 const removeCurrentBattleProfile = async () => {
@@ -1526,6 +1726,19 @@ const discoverModels = async () => {
     }
   });
 };
+const saveAndDiscoverModels = async () => {
+  if (!apiProfileDraft.value) {
+    return;
+  }
+  await runUiAction(async () => {
+    await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    const models = await store.discoverApiModels(apiProfileDraft.value!);
+    if (!apiProfileDraft.value?.model && models[0]) {
+      apiProfileDraft.value!.model = models[0];
+      await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    }
+  });
+};
 const applyDiscoveredModel = (modelOption: string) => {
   if (!apiProfileDraft.value) {
     return;
@@ -1540,6 +1753,15 @@ const testCurrentApiProfile = async () => {
     return;
   }
   await runUiAction(() => store.testApiProfile(apiProfileDraft.value!));
+};
+const saveAndTestApiProfile = async () => {
+  if (!apiProfileDraft.value) {
+    return;
+  }
+  await runUiAction(async () => {
+    await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    await store.testApiProfile(apiProfileDraft.value!);
+  });
 };
 const runFieldAnalysis = async () => {
   if (!battleProfileDraft.value) {

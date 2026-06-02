@@ -82,6 +82,27 @@ function createLootRecord(item: BattleLootItem, index: number) {
   ] as const;
 }
 
+function isMeaningfulLootItem(item: BattleLootItem) {
+  return Boolean(item.name.trim() || item.description.trim() || item.reason.trim() || item.quantity > 0);
+}
+
+function createLootRecordsFromUpdates(updates: Record<string, unknown>) {
+  return Object.entries(updates).map(([name, value], index) => {
+    const key = sanitizeKeySegment(name, `loot_update_${index + 1}`);
+    return [
+      key,
+      {
+        id: key,
+        名称: name,
+        数量: typeof value === 'number' && Number.isFinite(value) ? Math.max(1, Math.round(Math.abs(value))) : 1,
+        标签: ['战利品'],
+        描述: typeof value === 'string' ? value : JSON.stringify(value),
+        效果: typeof value === 'number' ? `${value >= 0 ? '+' : ''}${value}` : '',
+      },
+    ] as const;
+  });
+}
+
 export function buildRuntimeMainState(
   session: BattleSession,
   accumulatedUpdates: Record<string, unknown> = session.runtime.accumulated_updates,
@@ -120,7 +141,8 @@ export function createPendingPreviewFromFullBattleResult(session: BattleSession,
   const battleUpdates = mergeBattleRuntimeUpdates(session.runtime.accumulated_updates, result.final_selected_data_updates);
   const accumulatedUpdates = mergeBattleRuntimeUpdates(battleUpdates, result.loot_mvu_updates);
   const nextMainState = buildRuntimeMainState(session, accumulatedUpdates);
-  const nextLoot = Object.fromEntries(result.loot_result.loot_items.map(createLootRecord));
+  const itemLoot = result.loot_result.loot_items.filter(isMeaningfulLootItem).map(createLootRecord);
+  const nextLoot = Object.fromEntries(itemLoot.length ? itemLoot : createLootRecordsFromUpdates(result.loot_mvu_updates));
 
   return {
     preview: PendingPreviewSchema.parse(
@@ -139,7 +161,8 @@ export function createPendingPreviewFromFullBattleResult(session: BattleSession,
 export function createPendingPreviewFromLootResult(session: BattleSession, result: BattleLootResult) {
   const accumulatedUpdates = mergeBattleRuntimeUpdates(session.runtime.accumulated_updates, result.mvu_updates);
   const nextMainState = buildRuntimeMainState(session, accumulatedUpdates);
-  const nextLoot = Object.fromEntries(result.loot_result.loot_items.map(createLootRecord));
+  const itemLoot = result.loot_result.loot_items.filter(isMeaningfulLootItem).map(createLootRecord);
+  const nextLoot = Object.fromEntries(itemLoot.length ? itemLoot : createLootRecordsFromUpdates(result.mvu_updates));
   const baseEvents = klona(session.pending_preview.proposed_world_events);
 
   result.loot_result.special_findings.forEach((finding, index) => {

@@ -99,11 +99,25 @@ export type BattlePromptConfig = {
   loot_resolution: BattlePromptTemplate;
 };
 
+export type BattleWorldbookSource = 'character' | 'global' | 'manual';
+
+export type BattleImportedWorldbook = {
+  id: string;
+  name: string;
+  source: BattleWorldbookSource;
+  enabled: boolean;
+  content: string;
+  entry_count: number;
+  imported_at: number;
+};
+
 export type BattleContextConfig = {
   include_worldbook_context: boolean;
   include_environment_context: boolean;
   include_floor_context: boolean;
   include_recent_battle_report: boolean;
+  worldbook_max_chars: number;
+  imported_worldbooks: BattleImportedWorldbook[];
   extra_context_text: string;
 };
 
@@ -469,6 +483,8 @@ export function createDefaultBattleContextConfig(): BattleContextConfig {
     include_environment_context: true,
     include_floor_context: true,
     include_recent_battle_report: false,
+    worldbook_max_chars: 3000,
+    imported_worldbooks: [],
     extra_context_text: '',
   };
 }
