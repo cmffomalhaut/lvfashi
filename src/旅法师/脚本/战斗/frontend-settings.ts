@@ -27,6 +27,10 @@ import {
 
 export const BATTLE_FRONTEND_SETTINGS_VERSION = 1;
 export const BATTLE_FRONTEND_SETTINGS_STORAGE_KEY = 'battle_frontend_settings';
+const BATTLE_FRONTEND_SETTINGS_STORAGE_PATHS = [
+  BATTLE_FRONTEND_SETTINGS_STORAGE_KEY,
+  `stat_data.${BATTLE_FRONTEND_SETTINGS_STORAGE_KEY}`,
+] as const;
 
 function resolveBattleFrontendSettingsVariableOptions(): VariableOption[] {
   const options: VariableOption[] = [];
@@ -297,14 +301,22 @@ export const BattleFrontendSettingsSchema = z
   })
   .prefault({});
 
+function extractSettingsCandidates(variables: Record<string, any>): unknown[] {
+  const candidates = BATTLE_FRONTEND_SETTINGS_STORAGE_PATHS.filter(path => _.has(variables, path)).map(path =>
+    _.get(variables, path),
+  );
+  if (hasLegacyRootStorage(variables)) {
+    candidates.push(variables);
+  }
+  return candidates;
+}
+
 function extractSettingsCandidate(variables: Record<string, any>): unknown {
-  return _.has(variables, BATTLE_FRONTEND_SETTINGS_STORAGE_KEY)
-    ? _.get(variables, BATTLE_FRONTEND_SETTINGS_STORAGE_KEY)
-    : variables;
+  return selectBestSettingsCandidate(extractSettingsCandidates(variables)) ?? {};
 }
 
 function hasLegacyRootStorage(variables: Record<string, any>): boolean {
-  return !_.has(variables, BATTLE_FRONTEND_SETTINGS_STORAGE_KEY) && LEGACY_ROOT_KEYS.some(key => _.has(variables, key));
+  return !BATTLE_FRONTEND_SETTINGS_STORAGE_PATHS.some(path => _.has(variables, path)) && LEGACY_ROOT_KEYS.some(key => _.has(variables, key));
 }
 
 function writeSettingsToVariables(
@@ -313,7 +325,9 @@ function writeSettingsToVariables(
   shouldCleanupLegacyRoot: boolean,
 ): Record<string, any> {
   const nextVariables = klona(variables);
-  _.set(nextVariables, BATTLE_FRONTEND_SETTINGS_STORAGE_KEY, settings);
+  for (const path of BATTLE_FRONTEND_SETTINGS_STORAGE_PATHS) {
+    _.set(nextVariables, path, settings);
+  }
 
   if (shouldCleanupLegacyRoot) {
     for (const key of LEGACY_ROOT_KEYS) {
@@ -322,6 +336,44 @@ function writeSettingsToVariables(
   }
 
   return nextVariables;
+}
+
+function readProfileTimestamp(profile: unknown): number {
+  const updatedAt = Number(_.get(profile, 'updated_at'));
+  const createdAt = Number(_.get(profile, 'created_at'));
+  if (Number.isFinite(updatedAt) && updatedAt > 0) {
+    return updatedAt;
+  }
+  return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
+}
+
+function scoreSettingsCandidate(candidate: unknown): number {
+  if (!candidate || typeof candidate !== 'object') {
+    return -1;
+  }
+  const apiProfiles = Array.isArray(_.get(candidate, 'api_profiles')) ? (_.get(candidate, 'api_profiles') as unknown[]) : [];
+  const battleProfiles = Array.isArray(_.get(candidate, 'battle_profiles'))
+    ? (_.get(candidate, 'battle_profiles') as unknown[])
+    : [];
+  const latestProfileTimestamp = Math.max(0, ...apiProfiles.map(readProfileTimestamp), ...battleProfiles.map(readProfileTimestamp));
+  const profileCount = apiProfiles.length + battleProfiles.length;
+  const activeScore = (_.get(candidate, 'active_api_profile_id') ? 1 : 0) + (_.get(candidate, 'active_battle_profile_id') ? 1 : 0);
+  return latestProfileTimestamp * 1000 + profileCount * 10 + activeScore;
+}
+
+function selectBestSettingsCandidate(candidates: unknown[]): unknown | null {
+  let bestCandidate: unknown | null = null;
+  let bestScore = -1;
+
+  for (const candidate of candidates) {
+    const score = scoreSettingsCandidate(candidate);
+    if (score > bestScore) {
+      bestCandidate = candidate;
+      bestScore = score;
+    }
+  }
+
+  return bestCandidate;
 }
 
 function ensureUniqueProfileIds<T extends { id: string }>(profiles: T[], prefix: 'api' | 'battle'): T[] {
@@ -439,23 +491,22 @@ function buildSavedBattleProfile(profile: BattleProfile, previous: BattleProfile
 }
 
 export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSettingsBindings = runtimeBindings) {
-  const readVariablesWithFallback = (preferredOption?: VariableOption): Record<string, any> => {
+  const readSettingsCandidateWithFallback = (preferredOption?: VariableOption): unknown => {
     const candidates = preferredOption
       ? [preferredOption, ...resolveBattleFrontendSettingsVariableOptions().filter(option => !_.isEqual(option, preferredOption))]
       : resolveBattleFrontendSettingsVariableOptions();
     let lastReadVariables: Record<string, any> = {};
+    const settingCandidates: unknown[] = [];
 
     for (const option of candidates) {
       try {
         const variables = bindings.readVariables(option);
         lastReadVariables = variables;
-        if (_.has(variables, BATTLE_FRONTEND_SETTINGS_STORAGE_KEY) || hasLegacyRootStorage(variables)) {
-          return variables;
-        }
+        settingCandidates.push(...extractSettingsCandidates(variables));
       } catch {}
     }
 
-    return lastReadVariables;
+    return selectBestSettingsCandidate(settingCandidates) ?? extractSettingsCandidate(lastReadVariables);
   };
 
   const syncMirroredScopes = async (settings: BattleFrontendSettings, primaryOption?: VariableOption) => {
@@ -472,7 +523,7 @@ export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSetti
   };
 
   const read = (variableOption?: VariableOption): BattleFrontendSettings =>
-    migrateBattleFrontendSettings(extractSettingsCandidate(readVariablesWithFallback(variableOption)));
+    migrateBattleFrontendSettings(readSettingsCandidateWithFallback(variableOption));
 
   const mutateAndPersist = async (
     mutate: SettingsMutation,
@@ -483,7 +534,7 @@ export function createBattleFrontendSettingsAccess(bindings: BattleFrontendSetti
 
     await Promise.resolve(
       bindings.writeVariables(async variables => {
-        const before = migrateBattleFrontendSettings(extractSettingsCandidate(readVariablesWithFallback(primaryOption)));
+        const before = migrateBattleFrontendSettings(readSettingsCandidateWithFallback(primaryOption));
         const draft = klona(before);
         const mutated = await mutate(draft, before);
         const normalized = normalizeBattleFrontendSettings(mutated ?? draft);

@@ -48,11 +48,14 @@ import {
 import { battleSessionController } from '../../脚本/战斗/session.ts';
 import {
   createImportedWorldbook,
+  createImportedWorldbookFromEntries,
   listActiveBattleWorldbooks,
   listBattleWorldbookNames,
+  loadBattleWorldbookEntryOptions,
   loadBattleWorldbookContent,
   serializeImportedWorldbooks,
   upsertImportedWorldbooks,
+  type BattleWorldbookEntryOption,
 } from '../../脚本/战斗/worldbook.ts';
 
 function resolveLatestMessageId(): number {
@@ -113,6 +116,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const lastApiMessage = ref('');
   const lastApiError = ref('');
   const worldbookNames = ref<string[]>([]);
+  const worldbookEntryOptions = ref<BattleWorldbookEntryOption[]>([]);
   const lastWorldbookMessage = ref('');
   const lastWorldbookError = ref('');
   const lastFieldAnalysisMessage = ref('');
@@ -535,6 +539,36 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       const merged = upsertImportedWorldbooks(profile.context.imported_worldbooks, [imported]);
       await saveBattleProfileWorldbooks(profile, merged);
       lastWorldbookMessage.value = `已导入世界书“${name}”`;
+      return merged;
+    });
+
+  const refreshWorldbookEntries = async (worldbookName: string) =>
+    runWorldbookAction(async () => {
+      const name = worldbookName.trim();
+      if (!name) {
+        throw new Error('请选择世界书');
+      }
+      worldbookEntryOptions.value = await loadBattleWorldbookEntryOptions(name);
+      lastWorldbookMessage.value = worldbookEntryOptions.value.length
+        ? `已读取“${name}”的 ${worldbookEntryOptions.value.length} 条可用条目`
+        : `世界书“${name}”没有可用条目`;
+      return worldbookEntryOptions.value;
+    });
+
+  const importWorldbookEntries = async (profile: BattleProfile, worldbookName: string, entryIds: string[]) =>
+    runWorldbookAction(async () => {
+      const name = worldbookName.trim();
+      if (!name) {
+        throw new Error('请选择世界书');
+      }
+      const selectedEntries = worldbookEntryOptions.value.filter(entry => entryIds.includes(entry.id));
+      if (!selectedEntries.length) {
+        throw new Error('请选择至少一条世界书条目');
+      }
+      const imported = createImportedWorldbookFromEntries(name, selectedEntries);
+      const merged = upsertImportedWorldbooks(profile.context.imported_worldbooks, [imported]);
+      await saveBattleProfileWorldbooks(profile, merged);
+      lastWorldbookMessage.value = `已导入“${name}”的 ${selectedEntries.length} 条条目`;
       return merged;
     });
 
@@ -995,6 +1029,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     lastApiMessage,
     lastApiError,
     worldbookNames,
+    worldbookEntryOptions,
     lastWorldbookMessage,
     lastWorldbookError,
     lastFieldAnalysisMessage,
@@ -1023,6 +1058,8 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     refreshWorldbookNames,
     importActiveWorldbooks,
     importWorldbookByName,
+    refreshWorldbookEntries,
+    importWorldbookEntries,
     toggleImportedWorldbook,
     removeImportedWorldbook,
     runBattleFieldAnalysis,

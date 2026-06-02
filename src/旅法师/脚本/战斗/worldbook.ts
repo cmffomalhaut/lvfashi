@@ -34,6 +34,12 @@ export type BattleWorldbookContent = {
   entries: SillyTavernWorldbookEntry[];
 };
 
+export type BattleWorldbookEntryOption = {
+  id: string;
+  title: string;
+  content: string;
+};
+
 function getSillyTavernContext(): SillyTavernContext | null {
   const hosts = [window, window.parent, window.top].filter((host): host is Window => Boolean(host));
   for (const host of hosts) {
@@ -58,6 +64,22 @@ export function entriesToText(entries: SillyTavernWorldbookEntry[]): string {
       const title = entry.comment || keys.join(', ') || '条目';
       return [`### ${title}`, entry.content ?? ''].join('\n');
     })
+    .join('\n\n')
+    .trim();
+}
+
+function createEntryOption(entry: SillyTavernWorldbookEntry, index: number): BattleWorldbookEntryOption {
+  const keys = entry.key ?? entry.keys ?? [];
+  return {
+    id: String(entry.uid ?? index),
+    title: entry.comment || keys.join(', ') || `条目 ${index + 1}`,
+    content: entry.content ?? '',
+  };
+}
+
+function entryOptionsToText(entries: BattleWorldbookEntryOption[]): string {
+  return entries
+    .map(entry => [`### ${entry.title}`, entry.content].join('\n'))
     .join('\n\n')
     .trim();
 }
@@ -117,6 +139,15 @@ export async function loadBattleWorldbookContent(
   return { name, source, entries };
 }
 
+export async function loadBattleWorldbookEntryOptions(name: string): Promise<BattleWorldbookEntryOption[]> {
+  const context = getSillyTavernContext();
+  if (!context?.loadWorldInfo) {
+    throw new Error('当前环境不支持 loadWorldInfo');
+  }
+  const data = await context.loadWorldInfo(name);
+  return getEnabledEntries(data?.entries).map(createEntryOption);
+}
+
 export async function listActiveBattleWorldbooks(): Promise<BattleWorldbookContent[]> {
   const context = getSillyTavernContext();
   if (!context?.loadWorldInfo) {
@@ -170,6 +201,22 @@ export function createImportedWorldbook(
     enabled: true,
     content: entriesToText(worldbook.entries),
     entry_count: worldbook.entries.length,
+    imported_at: Date.now(),
+  };
+}
+
+export function createImportedWorldbookFromEntries(
+  worldbookName: string,
+  entries: BattleWorldbookEntryOption[],
+): BattleImportedWorldbook {
+  const entryIds = entries.map(entry => entry.id).join(',');
+  return {
+    id: `manual:${worldbookName}:entries:${entryIds}`,
+    name: `${worldbookName}（选中 ${entries.length} 条）`,
+    source: 'manual',
+    enabled: true,
+    content: entryOptionsToText(entries),
+    entry_count: entries.length,
     imported_at: Date.now(),
   };
 }

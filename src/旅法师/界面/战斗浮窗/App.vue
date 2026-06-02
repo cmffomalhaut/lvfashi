@@ -63,17 +63,7 @@
           <p v-if="lastApiMessage" class="hint hint--ok">{{ lastApiMessage }}</p>
           <p v-if="lastApiError" class="hint hint--error">{{ lastApiError }}</p>
 
-          <div v-if="discoveredActiveModels.length" class="model-list">
-            <h3>已发现模型</h3>
-            <label class="form-field">
-              <span>从已拉取模型中选择</span>
-              <select class="form-control" :value="apiProfileDraft?.model ?? ''" @change="applyDiscoveredModelFromSelect">
-                <option v-for="modelOption in discoveredActiveModels" :key="modelOption" :value="modelOption">
-                  {{ modelOption }}
-                </option>
-              </select>
-            </label>
-          </div>
+          <p v-if="discoveredActiveModels.length" class="hint hint--ok">已缓存 {{ discoveredActiveModels.length }} 个可选模型。</p>
         </article>
 
         <article v-if="apiProfileDraft" class="settings-panel settings-panel--phone settings-panel--accent">
@@ -114,6 +104,15 @@
             <label class="form-field form-field--wide">
               <span>模型名</span>
               <input v-model="apiProfileDraft.model" class="form-control" type="text" placeholder="gpt-4.1-mini / custom-model-id" />
+            </label>
+            <label v-if="discoveredActiveModels.length" class="form-field form-field--wide">
+              <span>从已拉取模型中选择</span>
+              <select class="form-control" :value="apiProfileDraft.model" @change="applyDiscoveredModelFromSelect">
+                <option value="">手动输入模型名</option>
+                <option v-for="modelOption in discoveredActiveModels" :key="modelOption" :value="modelOption">
+                  {{ modelOption }}
+                </option>
+              </select>
             </label>
             <label class="form-field">
               <span>模型列表路径</span>
@@ -452,7 +451,24 @@
 
           <div class="button-grid settings-footer-actions">
             <button class="btn" :disabled="isWorldbookBusy || !selectedWorldbookName" @click="manualImportWorldbook">导入整本</button>
+            <button class="btn" :disabled="isWorldbookBusy || !selectedWorldbookName" @click="refreshWorldbookEntries">读取条目</button>
+            <button class="btn" :disabled="isWorldbookBusy || !selectedWorldbookEntryIds.length" @click="manualImportWorldbookEntries">
+              导入选中条目
+            </button>
             <button class="btn btn--primary" :disabled="isWorldbookBusy" @click="saveBattleProfileDraft">保存世界书设置</button>
+          </div>
+
+          <div v-if="worldbookEntryOptions.length" class="preview-block">
+            <h3>可选条目</h3>
+            <p class="hint">已选择 {{ selectedWorldbookEntryIds.length }} / {{ worldbookEntryOptions.length }} 条。</p>
+            <ul class="info-list">
+              <li v-for="entry in worldbookEntryOptions" :key="entry.id">
+                <label class="check-field">
+                  <input v-model="selectedWorldbookEntryIds" type="checkbox" :value="entry.id" :disabled="isWorldbookBusy" />
+                  <span>{{ entry.title }} · {{ entry.content.length }} 字</span>
+                </label>
+              </li>
+            </ul>
           </div>
 
           <p v-if="lastWorldbookMessage" class="hint hint--ok">{{ lastWorldbookMessage }}</p>
@@ -827,6 +843,9 @@
                 </span>
                 <div class="battle-message__actions">
                   <button class="btn btn--ghost btn--sm" type="button" @click="refreshBattleData">重新读取数据</button>
+                  <button class="btn btn--primary btn--sm" type="button" :disabled="isResolving || isRuntimeRequestBusy" @click="resolveAgain">
+                    {{ rerunButtonLabel }}
+                  </button>
                   <button class="btn btn--warn btn--sm" type="button" @click="forceRebuild">重建战斗</button>
                 </div>
               </div>
@@ -981,6 +1000,7 @@ const {
   lastApiMessage,
   lastApiError,
   worldbookNames,
+  worldbookEntryOptions,
   lastWorldbookMessage,
   lastWorldbookError,
   lastFieldAnalysisMessage,
@@ -1009,6 +1029,7 @@ const runtimePlayerCommand = ref('');
 const runtimeDiceInputsDraft = ref('{}');
 const runtimeExtraInstructions = ref('');
 const selectedWorldbookName = ref('');
+const selectedWorldbookEntryIds = ref<string[]>([]);
 const runtimeDraftError = ref('');
 const uiActionError = ref('');
 const lastDiceMessage = ref('');
@@ -1333,6 +1354,11 @@ watch(
   },
   { immediate: true },
 );
+
+watch(selectedWorldbookName, () => {
+  selectedWorldbookEntryIds.value = [];
+  worldbookEntryOptions.value = [];
+});
 
 watch(
   () => battleSession.value.round.round_no,
@@ -1675,6 +1701,23 @@ const manualImportWorldbook = async () => {
   }
   await runUiAction(async () => {
     const imported = await store.importWorldbookByName(battleProfileDraft.value!, selectedWorldbookName.value);
+    syncDraftWorldbooks(imported);
+  });
+};
+const refreshWorldbookEntries = async () => {
+  selectedWorldbookEntryIds.value = [];
+  await runUiAction(() => store.refreshWorldbookEntries(selectedWorldbookName.value));
+};
+const manualImportWorldbookEntries = async () => {
+  if (!battleProfileDraft.value) {
+    return;
+  }
+  await runUiAction(async () => {
+    const imported = await store.importWorldbookEntries(
+      battleProfileDraft.value!,
+      selectedWorldbookName.value,
+      selectedWorldbookEntryIds.value,
+    );
     syncDraftWorldbooks(imported);
   });
 };
