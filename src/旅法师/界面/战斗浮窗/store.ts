@@ -342,21 +342,25 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
         makeActive: true,
       }),
     );
+    return activeApiProfile.value;
   };
 
   const saveApiProfile = async (profile: BattleApiProfile, options: { makeActive?: boolean } = {}) => {
     settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.upsertApiProfile(profile, options));
     lastApiMessage.value = '接口配置已保存';
     lastApiError.value = '';
+    return settings.value;
   };
 
   const removeApiProfile = async (profileId: string) => {
     settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.removeApiProfile(profileId));
     delete discoveredModels.value[profileId];
+    return activeApiProfile.value;
   };
 
   const setActiveApiProfile = async (profileId: string | null) => {
     settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.setActiveApiProfile(profileId));
+    return activeApiProfile.value;
   };
 
   const createBattleProfile = async () => {
@@ -365,18 +369,22 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
         makeActive: true,
       }),
     );
+    return activeBattleProfile.value;
   };
 
   const saveBattleProfile = async (profile: BattleProfile, options: { makeActive?: boolean } = {}) => {
     settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.upsertBattleProfile(profile, options));
+    return settings.value;
   };
 
   const removeBattleProfile = async (profileId: string) => {
     settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.removeBattleProfile(profileId));
+    return activeBattleProfile.value;
   };
 
   const setActiveBattleProfile = async (profileId: string | null) => {
     settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.setActiveBattleProfile(profileId));
+    return activeBattleProfile.value;
   };
 
   const resolveBattleApiProfile = (profile: BattleProfile): BattleApiProfile => {
@@ -1015,6 +1023,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     activeApiProfile,
     battleProfiles,
     activeBattleProfile,
+    discoveredModels,
     discoveredActiveModels,
     enemyCount,
     sourceMessageId,

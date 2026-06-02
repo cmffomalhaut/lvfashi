@@ -63,7 +63,7 @@
           <p v-if="lastApiMessage" class="hint hint--ok">{{ lastApiMessage }}</p>
           <p v-if="lastApiError" class="hint hint--error">{{ lastApiError }}</p>
 
-          <p v-if="discoveredActiveModels.length" class="hint hint--ok">已缓存 {{ discoveredActiveModels.length }} 个可选模型。</p>
+          <p v-if="apiProfileModelOptions.length" class="hint hint--ok">已缓存 {{ apiProfileModelOptions.length }} 个可选模型。</p>
         </article>
 
         <article v-if="apiProfileDraft" class="settings-panel settings-panel--phone settings-panel--accent">
@@ -105,11 +105,12 @@
               <span>模型名</span>
               <input v-model="apiProfileDraft.model" class="form-control" type="text" placeholder="gpt-4.1-mini / custom-model-id" />
             </label>
-            <label v-if="discoveredActiveModels.length" class="form-field form-field--wide">
+            <label class="form-field form-field--wide">
               <span>从已拉取模型中选择</span>
-              <select class="form-control" :value="apiProfileDraft.model" @change="applyDiscoveredModelFromSelect">
+              <select class="form-control" :value="apiProfileDraft.model" :disabled="!apiProfileModelOptions.length" @change="applyDiscoveredModelFromSelect">
                 <option value="">手动输入模型名</option>
-                <option v-for="modelOption in discoveredActiveModels" :key="modelOption" :value="modelOption">
+                <option v-if="!apiProfileModelOptions.length" value="" disabled>先拉取模型列表</option>
+                <option v-for="modelOption in apiProfileModelOptions" :key="modelOption" :value="modelOption">
                   {{ modelOption }}
                 </option>
               </select>
@@ -952,6 +953,7 @@ import { klona } from 'klona';
 import { storeToRefs } from 'pinia';
 import type {
   BattleApiProfile,
+  BattleFrontendSettings,
   BattleFullResult,
   BattleLootResult,
   BattleProfile,
@@ -988,6 +990,7 @@ const {
   activeApiProfile,
   battleProfiles,
   activeBattleProfile,
+  discoveredModels,
   discoveredActiveModels,
   canResume,
   enemyCount,
@@ -1056,6 +1059,16 @@ const apiEndpointPresets = [
 ];
 const canRemoveApiProfile = computed(() => apiProfiles.value.length > 1);
 const canRemoveBattleProfile = computed(() => battleProfiles.value.length > 1);
+const apiProfileModelOptions = computed(() => {
+  const candidateIds = [apiProfileDraft.value?.id, activeApiProfile.value?.id].filter((id): id is string => Boolean(id));
+  for (const id of candidateIds) {
+    const models = discoveredModels.value[id] ?? [];
+    if (models.length) {
+      return models;
+    }
+  }
+  return discoveredActiveModels.value;
+});
 const activePromptKey = ref<BattlePromptTemplateKey>('single_round');
 const promptNotice = ref('');
 const promptError = ref('');
@@ -1334,6 +1347,22 @@ const formatFieldValueKind = (valueKind: string) => {
     default:
       return '未知';
   }
+};
+const syncApiProfileDraftFromSettings = (settings: BattleFrontendSettings, preferredId?: string | null) => {
+  const profile =
+    settings.api_profiles.find(item => item.id === preferredId) ??
+    settings.api_profiles.find(item => item.id === settings.active_api_profile_id) ??
+    settings.api_profiles[0] ??
+    null;
+  apiProfileDraft.value = profile ? klona(profile) : null;
+};
+const syncBattleProfileDraftFromSettings = (settings: BattleFrontendSettings, preferredId?: string | null) => {
+  const profile =
+    settings.battle_profiles.find(item => item.id === preferredId) ??
+    settings.battle_profiles.find(item => item.id === settings.active_battle_profile_id) ??
+    settings.battle_profiles[0] ??
+    null;
+  battleProfileDraft.value = profile ? klona(profile) : null;
 };
 
 watch(
@@ -1625,24 +1654,34 @@ const finishBattle = async () => {
 };
 const changeActiveApiProfile = async (event: Event) => {
   const nextId = (event.target as HTMLSelectElement).value || null;
-  await runUiAction(() => store.setActiveApiProfile(nextId));
+  await runUiAction(async () => {
+    const profile = await store.setActiveApiProfile(nextId);
+    apiProfileDraft.value = profile ? klona(profile) : null;
+  });
 };
 const createNewApiProfile = async () => {
-  await runUiAction(() => store.createApiProfile());
+  await runUiAction(async () => {
+    const profile = await store.createApiProfile();
+    apiProfileDraft.value = profile ? klona(profile) : null;
+  });
 };
 const saveApiProfileDraft = async () => {
   if (!apiProfileDraft.value) {
     return;
   }
   await runUiAction(async () => {
-    await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    const settings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    syncApiProfileDraftFromSettings(settings, apiProfileDraft.value!.id);
   });
 };
 const removeCurrentApiProfile = async () => {
   if (!apiProfileDraft.value) {
     return;
   }
-  await runUiAction(() => store.removeApiProfile(apiProfileDraft.value!.id));
+  await runUiAction(async () => {
+    const profile = await store.removeApiProfile(apiProfileDraft.value!.id);
+    apiProfileDraft.value = profile ? klona(profile) : null;
+  });
 };
 const applyApiEndpointPreset = (event: Event) => {
   if (!apiProfileDraft.value) {
@@ -1660,10 +1699,16 @@ const applyApiEndpointPreset = (event: Event) => {
 };
 const changeActiveBattleProfile = async (event: Event) => {
   const nextId = (event.target as HTMLSelectElement).value || null;
-  await runUiAction(() => store.setActiveBattleProfile(nextId));
+  await runUiAction(async () => {
+    const profile = await store.setActiveBattleProfile(nextId);
+    battleProfileDraft.value = profile ? klona(profile) : null;
+  });
 };
 const createNewBattleProfile = async () => {
-  await runUiAction(() => store.createBattleProfile());
+  await runUiAction(async () => {
+    const profile = await store.createBattleProfile();
+    battleProfileDraft.value = profile ? klona(profile) : null;
+  });
 };
 const saveBattleProfileDraft = async () => {
   if (!battleProfileDraft.value) {
@@ -1672,7 +1717,8 @@ const saveBattleProfileDraft = async () => {
   await runUiAction(async () => {
     const draft = klona(battleProfileDraft.value!);
     draft.field_selection = buildUpdatedFieldSelectionConfig(draft.field_selection, fieldOverrides.value, fieldSourceHash.value);
-    await store.saveBattleProfile(draft, { makeActive: true });
+    const settings = await store.saveBattleProfile(draft, { makeActive: true });
+    syncBattleProfileDraftFromSettings(settings, draft.id);
     promptNotice.value = '战斗配置与 Prompt 已保存';
     promptError.value = '';
   });
@@ -1747,7 +1793,8 @@ const removeCurrentBattleProfile = async () => {
     return;
   }
   await runUiAction(async () => {
-    await store.removeBattleProfile(battleProfileDraft.value!.id);
+    const profile = await store.removeBattleProfile(battleProfileDraft.value!.id);
+    battleProfileDraft.value = profile ? klona(profile) : null;
     promptNotice.value = '';
     promptError.value = '';
   });
@@ -1774,11 +1821,13 @@ const saveAndDiscoverModels = async () => {
     return;
   }
   await runUiAction(async () => {
-    await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    const firstSettings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    syncApiProfileDraftFromSettings(firstSettings, apiProfileDraft.value!.id);
     const models = await store.discoverApiModels(apiProfileDraft.value!);
     if (!apiProfileDraft.value?.model && models[0]) {
       apiProfileDraft.value!.model = models[0];
-      await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+      const nextSettings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+      syncApiProfileDraftFromSettings(nextSettings, apiProfileDraft.value!.id);
     }
   });
 };
@@ -1802,7 +1851,8 @@ const saveAndTestApiProfile = async () => {
     return;
   }
   await runUiAction(async () => {
-    await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    const settings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
+    syncApiProfileDraftFromSettings(settings, apiProfileDraft.value!.id);
     await store.testApiProfile(apiProfileDraft.value!);
   });
 };
