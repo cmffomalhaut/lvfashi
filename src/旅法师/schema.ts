@@ -103,7 +103,15 @@ const 世界Schema = z
     当前位面: trimmedString().prefault('未定'),
     当前地点: trimmedString().prefault('未定'),
     当前天气: trimmedString().prefault('未定'),
-    近期事务: z.record(z.string(), trimmedString()).prefault({}),
+    近期事务: z
+      .preprocess(value => {
+        if (value === null || value === undefined) {
+          return {};
+        }
+        return typeof value === 'string' ? {} : value;
+      }, z.record(z.string(), trimmedString()))
+      .catch({})
+      .prefault({}),
   })
   .prefault({});
 
@@ -169,7 +177,7 @@ export const PlayerCheckSchema = z
   .object({
     strategy_text: trimmedString().prefault(''),
     roll: boundedInteger(0, 20, 0).prefault(0),
-    reroll_used: boundedInteger(0, 3, 0).prefault(0),
+    reroll_used: boundedInteger(0, 99, 0).prefault(0),
     confirmed: z.boolean().prefault(false),
   })
   .prefault({});
@@ -211,6 +219,16 @@ const BattleRuntimeSettlementSchema = z
   })
   .prefault({});
 
+const BattleRuntimeTranscriptEntrySchema = z
+  .object({
+    id: trimmedString().prefault(''),
+    role: z.enum(['system', 'player', 'ai']).prefault('system'),
+    label: trimmedString().prefault(''),
+    content: trimmedString().prefault(''),
+    created_at: z.coerce.number().transform(value => (Number.isFinite(value) ? value : 0)).prefault(0),
+  })
+  .prefault({});
+
 export const BattleRuntimeStateSchema = z
   .object({
     last_result_type: z.enum(['none', 'round', 'full_battle', 'loot']).prefault('none'),
@@ -224,6 +242,7 @@ export const BattleRuntimeStateSchema = z
     latest_warnings: z.array(trimmedString()).prefault([]),
     accumulated_updates: z.record(z.string(), z.unknown()).prefault({}),
     settlement: BattleRuntimeSettlementSchema.prefault({}),
+    transcript: z.array(BattleRuntimeTranscriptEntrySchema).prefault([]),
   })
   .prefault({});
 

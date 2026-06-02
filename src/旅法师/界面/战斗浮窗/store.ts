@@ -1,6 +1,12 @@
 import { klona } from 'klona';
 import { type BattleSession, type MainState, Schema } from '../../schema.ts';
-import { projectBattleSession, projectMainState, resolveRuntimeLatestMessageId, stateAccess } from '../../脚本/MVU/state-access.ts';
+import {
+  createMessageVariableOption,
+  projectBattleSession,
+  projectMainState,
+  resolveRuntimeLatestMessageId,
+  stateAccess,
+} from '../../脚本/MVU/state-access.ts';
 import {
   createDefaultBattleApiProfile,
   createDefaultBattleFrontendSettings,
@@ -18,6 +24,8 @@ import { BattleAiParseError } from '../../脚本/战斗/api-client.ts';
 import { fetchBattleApiModels, testBattleApiConnection } from '../../脚本/战斗/api-client.ts';
 import { analyzeBattleFields } from '../../脚本/战斗/field-analysis.ts';
 import { buildBattleFieldAnalysisPayload } from '../../脚本/战斗/field-analysis.ts';
+import { applyBattleRuntimeUpdates } from '../../脚本/战斗/battle-updates.ts';
+import { extractSelectedBattleData } from '../../脚本/战斗/field-selection.ts';
 import { battleFrontendSettingsAccess } from '../../脚本/战斗/frontend-settings.ts';
 import {
   buildBattleLootPayload,
@@ -36,11 +44,46 @@ import {
 import { battleSessionController } from '../../脚本/战斗/session.ts';
 
 function resolveLatestMessageId(): number {
+  const hosts = [window, window.parent, window.top].filter((host): host is Window => Boolean(host));
+  for (const host of hosts) {
+    try {
+      const runtimeHost = host as Window & {
+        getCurrentMessageId?: () => number | string | undefined;
+        getLastMessageId?: () => number | string | undefined;
+      };
+      const value = runtimeHost.getCurrentMessageId?.() ?? runtimeHost.getLastMessageId?.();
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    } catch {}
+  }
   return resolveRuntimeLatestMessageId() ?? -1;
+}
+
+type BattleWindowControlHost = Window & {
+  __planeswalkerBattleWindowClose?: () => void;
+};
+
+type VariableReaderHost = Window & {
+  TavernHelper?: {
+    getVariables?: (option: VariableOption) => Record<string, any>;
+  };
+  getVariables?: (option: VariableOption) => Record<string, any>;
+};
+
+function notifyBattleWindowClose(host: Window) {
+  try {
+    (host as BattleWindowControlHost).__planeswalkerBattleWindowClose?.();
+  } catch {
+    // Cross-frame hosts may reject direct property access; postMessage remains the fallback.
+  }
+  host.postMessage({ type: 'planeswalker:battle:close' }, '*');
 }
 
 export const useBattleWindowStore = defineStore('planeswalker.battle-window', () => {
   const canonicalState = ref(Schema.parse({}, { reportInput: true }));
+  const rawMainState = ref<Record<string, unknown>>({});
   const settings = ref<BattleFrontendSettings>(createDefaultBattleFrontendSettings());
   const discoveredModels = ref<Record<string, string[]>>({});
   const isResolving = ref(false);
@@ -60,26 +103,63 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const lastRuntimePayload = ref<Record<string, unknown> | null>(null);
   const lastRuntimeResult = ref<BattleRoundResult | BattleFullResult | BattleLootResult | null>(null);
   const lastRuntimeRawText = ref('');
+  const boundSourceMessageId = ref<number | null>(null);
   let retryLastFieldAnalysisAction: null | (() => Promise<unknown>) = null;
   let retryLastRuntimeAction: null | (() => Promise<unknown>) = null;
 
+  const readRawMainState = (messageId: number) => {
+    if (messageId < 0) {
+      return {};
+    }
+
+    const option = createMessageVariableOption(messageId);
+    const hosts = [window, window.parent, window.top].filter((host): host is Window => Boolean(host));
+    for (const host of hosts) {
+      try {
+        const readerHost = host as VariableReaderHost;
+        const readVariables = readerHost.TavernHelper?.getVariables ?? readerHost.getVariables;
+        const variables = readVariables?.(option);
+        const statData = _.get(variables, 'stat_data', {});
+        if (!_.isEmpty(statData)) {
+          return klona(_.omit(statData, 'battle_session')) as Record<string, unknown>;
+        }
+      } catch {}
+    }
+    return {};
+  };
+
   const refresh = () => {
+    const targetMessageId = boundSourceMessageId.value ?? resolveLatestMessageId() ?? -1;
     try {
-      canonicalState.value = stateAccess.readCanonicalState();
+      canonicalState.value =
+        targetMessageId >= 0
+          ? stateAccess.readCanonicalState(createMessageVariableOption(targetMessageId))
+          : Schema.parse({}, { reportInput: true });
+      const session = projectBattleSession(canonicalState.value);
+      boundSourceMessageId.value = session.激活 ? session.meta.source_message_id : null;
     } catch (error) {
       lastResolveError.value = error instanceof Error ? error.message : String(error);
       canonicalState.value = Schema.parse({}, { reportInput: true });
+      boundSourceMessageId.value = null;
     }
+    rawMainState.value = readRawMainState(boundSourceMessageId.value ?? targetMessageId);
   };
 
   const refreshSettings = async () => {
     try {
-      settings.value = await battleFrontendSettingsAccess.load();
+      settings.value = battleFrontendSettingsAccess.read();
     } catch (error) {
       lastApiError.value = error instanceof Error ? error.message : String(error);
       settings.value = createDefaultBattleFrontendSettings();
     }
   };
+
+  const reloadSettingsFromStorage = () => {
+    settings.value = battleFrontendSettingsAccess.read();
+    return settings.value;
+  };
+
+  const commitSettingsChange = async (action: () => Promise<BattleFrontendSettings>) => await action();
 
   refresh();
   useIntervalFn(refresh, 1000);
@@ -90,6 +170,12 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const runtimeMainState = computed<MainState>(() =>
     battleSession.value.激活 ? projectMainStateFromBattleSession(battleSession.value) : mainState.value,
   );
+  const runtimeStatData = computed<Record<string, unknown>>(() => {
+    if (!battleSession.value.激活 || _.isEmpty(battleSession.value.runtime.accumulated_updates)) {
+      return rawMainState.value;
+    }
+    return runtimeMainState.value;
+  });
   const apiProfiles = computed(() => settings.value.api_profiles.map(profile => klona(profile)));
   const activeApiProfile = computed<BattleApiProfile | null>(
     () => settings.value.api_profiles.find(profile => profile.id === settings.value.active_api_profile_id) ?? null,
@@ -103,7 +189,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     return profile ? discoveredModels.value[profile.id] ?? [] : [];
   });
   const enemyCount = computed(() => Object.keys(mainState.value.敌方).length);
-  const sourceMessageId = computed(() => resolveLatestMessageId());
+  const sourceMessageId = computed(() => boundSourceMessageId.value ?? resolveLatestMessageId() ?? -1);
   const canResume = computed(
     () => battleSession.value.激活 && battleSession.value.meta.source_message_id === sourceMessageId.value,
   );
@@ -116,9 +202,26 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       !_.isEqual(battleSession.value.combatants, battleSession.value.round_checkpoint.combatants),
   );
 
+  const assertTransactionSucceeded = (result: unknown) => {
+    if (!_.isPlainObject(result)) {
+      return;
+    }
+
+    const directOk = _.get(result, 'ok');
+    if (directOk === false) {
+      throw new Error(String(_.get(result, 'message') || '战斗事务执行失败'));
+    }
+
+    const nestedTransaction = _.get(result, 'transaction');
+    if (_.isPlainObject(nestedTransaction) && _.get(nestedTransaction, 'ok') === false) {
+      throw new Error(String(_.get(nestedTransaction, 'message') || '战斗事务执行失败'));
+    }
+  };
+
   const runAndRefresh = async <T>(action: () => Promise<T>) => {
     const result = await action();
     refresh();
+    assertTransactionSucceeded(result);
     return result;
   };
 
@@ -180,43 +283,46 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   };
 
   const createApiProfile = async () => {
-    settings.value = await battleFrontendSettingsAccess.upsertApiProfile(createDefaultBattleApiProfile(), {
-      makeActive: true,
-    });
+    settings.value = await commitSettingsChange(() =>
+      battleFrontendSettingsAccess.upsertApiProfile(createDefaultBattleApiProfile(), {
+        makeActive: true,
+      }),
+    );
   };
 
   const saveApiProfile = async (profile: BattleApiProfile, options: { makeActive?: boolean } = {}) => {
-    settings.value = await battleFrontendSettingsAccess.upsertApiProfile(profile, options);
+    settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.upsertApiProfile(profile, options));
+    lastApiMessage.value = '接口配置已保存';
+    lastApiError.value = '';
   };
 
   const removeApiProfile = async (profileId: string) => {
-    settings.value = await battleFrontendSettingsAccess.removeApiProfile(profileId);
+    settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.removeApiProfile(profileId));
     delete discoveredModels.value[profileId];
   };
 
   const setActiveApiProfile = async (profileId: string | null) => {
-    settings.value = await battleFrontendSettingsAccess.setActiveApiProfile(profileId);
+    settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.setActiveApiProfile(profileId));
   };
 
   const createBattleProfile = async () => {
-    settings.value = await battleFrontendSettingsAccess.upsertBattleProfile(
-      createDefaultBattleProfile(settings.value.active_api_profile_id),
-      {
+    settings.value = await commitSettingsChange(() =>
+      battleFrontendSettingsAccess.upsertBattleProfile(createDefaultBattleProfile(settings.value.active_api_profile_id), {
         makeActive: true,
-      },
+      }),
     );
   };
 
   const saveBattleProfile = async (profile: BattleProfile, options: { makeActive?: boolean } = {}) => {
-    settings.value = await battleFrontendSettingsAccess.upsertBattleProfile(profile, options);
+    settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.upsertBattleProfile(profile, options));
   };
 
   const removeBattleProfile = async (profileId: string) => {
-    settings.value = await battleFrontendSettingsAccess.removeBattleProfile(profileId);
+    settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.removeBattleProfile(profileId));
   };
 
   const setActiveBattleProfile = async (profileId: string | null) => {
-    settings.value = await battleFrontendSettingsAccess.setActiveBattleProfile(profileId);
+    settings.value = await commitSettingsChange(() => battleFrontendSettingsAccess.setActiveBattleProfile(profileId));
   };
 
   const resolveBattleApiProfile = (profile: BattleProfile): BattleApiProfile => {
@@ -249,12 +355,14 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   const testApiProfile = async (profile: BattleApiProfile) =>
     runApiAction(async () => {
       const testResult = await testBattleApiConnection(profile);
-      settings.value = await battleFrontendSettingsAccess.upsertApiProfile(
-        {
-          ...profile,
-          last_test_result: testResult,
-        },
-        { makeActive: settings.value.active_api_profile_id === profile.id },
+      settings.value = await commitSettingsChange(() =>
+        battleFrontendSettingsAccess.upsertApiProfile(
+          {
+            ...profile,
+            last_test_result: testResult,
+          },
+          { makeActive: settings.value.active_api_profile_id === profile.id },
+        ),
       );
       if (testResult.ok) {
         lastApiMessage.value = testResult.message;
@@ -266,20 +374,33 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
 
   const runBattleFieldAnalysis = async (profile: BattleProfile) =>
     runFieldAnalysisAction(async () => {
+      if (Object.keys(rawMainState.value).length <= 0) {
+        throw new Error('当前楼层没有可读取的 stat_data，无法进行字段分析');
+      }
       const profileSnapshot = klona(profile);
       retryLastFieldAnalysisAction = () => runBattleFieldAnalysis(profileSnapshot);
       const apiProfile = resolveBattleApiProfile(profile);
-      lastFieldAnalysisPayload.value = buildBattleFieldAnalysisPayload(profile, mainState.value as Record<string, unknown>);
-      const analysis = await analyzeBattleFields(apiProfile, profile, mainState.value as Record<string, unknown>);
+      lastFieldAnalysisPayload.value = buildBattleFieldAnalysisPayload(profile, rawMainState.value);
+      const analysis = await analyzeBattleFields(apiProfile, profile, rawMainState.value);
       lastFieldAnalysisPayload.value = analysis.payload;
       lastFieldAnalysisResult.value = analysis.result;
       lastFieldAnalysisRawText.value = analysis.rawText;
-      settings.value = await battleFrontendSettingsAccess.upsertBattleProfile(
-        {
-          ...profile,
-          field_selection: analysis.fieldSelection,
-        },
-        { makeActive: settings.value.active_battle_profile_id === profile.id },
+      settings.value = await commitSettingsChange(() =>
+        battleFrontendSettingsAccess.upsertBattleProfile(
+          {
+            ...profile,
+            field_selection: {
+              ...profile.field_selection,
+              selected_fields: analysis.fieldSelection.selected_fields,
+              analysis_warnings: analysis.fieldSelection.analysis_warnings,
+              last_analysis_input_hash: analysis.fieldSelection.last_analysis_input_hash,
+              last_analysis_at: analysis.fieldSelection.last_analysis_at,
+              source_data_hash: analysis.fieldSelection.source_data_hash,
+              manual_review_required: true,
+            },
+          },
+          { makeActive: settings.value.active_battle_profile_id === profile.id },
+        ),
       );
       lastFieldAnalysisMessage.value = analysis.result.fields.length
         ? `字段分析完成，已生成 ${analysis.result.fields.length} 条建议`
@@ -297,6 +418,16 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       ? klona(runtimeMainState.value.世界 as Record<string, unknown>)
       : {},
   });
+
+  const createSelectedRuntimeData = (profile: BattleProfile): Record<string, unknown> => {
+    if (_.isEmpty(runtimeStatData.value)) {
+      return {};
+    }
+    const selectedData = extractSelectedBattleData(runtimeStatData.value, profile.field_selection.selected_fields).selectedData;
+    return battleSession.value.激活
+      ? applyBattleRuntimeUpdates(selectedData, battleSession.value.runtime.accumulated_updates)
+      : selectedData;
+  };
 
   const createBattleSessionRuntimeOptions = (profile: BattleProfile): BattleRuntimeRequestOptions => {
     if (!battleSession.value.激活) {
@@ -316,24 +447,35 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
             acting_side: session.round.acting_side,
           };
 
+    const battleHistoryContext = [
+      session.runtime.latest_summary ? `上一回合摘要：${session.runtime.latest_summary}` : '',
+      session.runtime.latest_narration ? `上一回合叙述：${session.runtime.latest_narration}` : '',
+      session.runtime.latest_battle_report ? `整场战报：${session.runtime.latest_battle_report}` : '',
+      _.isEmpty(session.runtime.accumulated_updates)
+        ? ''
+        : `战斗前端累计更新（只叠加到下一次 selected_data，不直接写 MVU）：${JSON.stringify(session.runtime.accumulated_updates, null, 2)}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
     return createRuntimeRequestOptions(profile, {
       playerCommand: session.player_check.strategy_text,
       diceInputs,
-      extraInstructions: '',
+      extraInstructions: battleHistoryContext,
     });
   };
 
   const sendSingleRoundRequest = async (
     profile: BattleProfile,
-    selectedData: Record<string, unknown>,
+    _selectedData: Record<string, unknown>,
     options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
   ) =>
     runRuntimeRequestAction(async () => {
       const profileSnapshot = klona(profile);
-      const selectedDataSnapshot = klona(selectedData);
       const optionsSnapshot = klona(options);
-      retryLastRuntimeAction = () => sendSingleRoundRequest(profileSnapshot, selectedDataSnapshot, optionsSnapshot);
+      retryLastRuntimeAction = () => sendSingleRoundRequest(profileSnapshot, {}, optionsSnapshot);
       const apiProfile = resolveBattleApiProfile(profile);
+      const selectedData = createSelectedRuntimeData(profile);
       lastRuntimePayload.value = buildBattleRuntimePayload(profile, selectedData, {
         ...createRuntimeRequestOptions(profile, options),
         turnMode: 'round_based',
@@ -353,15 +495,15 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
 
   const sendFullBattleRequest = async (
     profile: BattleProfile,
-    selectedData: Record<string, unknown>,
+    _selectedData: Record<string, unknown>,
     options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
   ) =>
     runRuntimeRequestAction(async () => {
       const profileSnapshot = klona(profile);
-      const selectedDataSnapshot = klona(selectedData);
       const optionsSnapshot = klona(options);
-      retryLastRuntimeAction = () => sendFullBattleRequest(profileSnapshot, selectedDataSnapshot, optionsSnapshot);
+      retryLastRuntimeAction = () => sendFullBattleRequest(profileSnapshot, {}, optionsSnapshot);
       const apiProfile = resolveBattleApiProfile(profile);
+      const selectedData = createSelectedRuntimeData(profile);
       lastRuntimePayload.value = buildBattleRuntimePayload(profile, selectedData, {
         ...createRuntimeRequestOptions(profile, options),
         turnMode: 'full_battle',
@@ -381,15 +523,15 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
 
   const sendLootResolutionRequest = async (
     profile: BattleProfile,
-    selectedData: Record<string, unknown>,
+    _selectedData: Record<string, unknown>,
     options: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
   ) =>
     runRuntimeRequestAction(async () => {
       const profileSnapshot = klona(profile);
-      const selectedDataSnapshot = klona(selectedData);
       const optionsSnapshot = klona(options);
-      retryLastRuntimeAction = () => sendLootResolutionRequest(profileSnapshot, selectedDataSnapshot, optionsSnapshot);
+      retryLastRuntimeAction = () => sendLootResolutionRequest(profileSnapshot, {}, optionsSnapshot);
       const apiProfile = resolveBattleApiProfile(profile);
+      const selectedData = createSelectedRuntimeData(profile);
       lastRuntimePayload.value = buildBattleLootPayload(profile, selectedData, createRuntimeRequestOptions(profile, options));
       const execution = await requestBattleLootResolution(
         apiProfile,
@@ -404,18 +546,53 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       return execution.result;
     });
 
-  const executeConfiguredBattleTurn = async (profile: BattleProfile, selectedData: Record<string, unknown>) =>
+  const executeConfiguredBattleTurn = async (
+    profile: BattleProfile,
+    _selectedData: Record<string, unknown>,
+    options?: Pick<BattleRuntimeRequestOptions, 'playerCommand' | 'diceInputs' | 'extraInstructions'>,
+  ) =>
     runRuntimeRequestAction(async () => {
       lastResolveError.value = '';
-      if (!battleSession.value.激活) {
-        throw new Error('请先开始战斗，再执行正式战斗链路');
-      }
-
       const apiProfile = resolveBattleApiProfile(profile);
-      const runtimeOptions = createBattleSessionRuntimeOptions(profile);
+      const selectedData = createSelectedRuntimeData(profile);
+      const sessionRuntimeOptions = battleSession.value.激活 ? createBattleSessionRuntimeOptions(profile) : null;
+      const runtimeOptions = battleSession.value.激活
+        ? {
+            ...sessionRuntimeOptions!,
+            playerCommand: options?.playerCommand ?? sessionRuntimeOptions!.playerCommand,
+            diceInputs: {
+              ...sessionRuntimeOptions!.diceInputs,
+              ...klona(options?.diceInputs ?? {}),
+            },
+            extraInstructions: [sessionRuntimeOptions!.extraInstructions, options?.extraInstructions?.trim() ?? '']
+              .filter(Boolean)
+              .join('\n\n'),
+          }
+        : createRuntimeRequestOptions(profile, {
+            playerCommand: options?.playerCommand ?? '',
+            diceInputs: klona(options?.diceInputs ?? {}),
+            extraInstructions: [
+              options?.extraInstructions?.trim() ?? '',
+              '当前为无 battle_session 测试请求，仅用于检查 AI 返回格式。',
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
+          });
       const profileSnapshot = klona(profile);
-      const selectedDataSnapshot = klona(selectedData);
-      retryLastRuntimeAction = () => executeConfiguredBattleTurn(profileSnapshot, selectedDataSnapshot);
+      const optionsSnapshot = options ? klona(options) : undefined;
+      retryLastRuntimeAction = () => executeConfiguredBattleTurn(profileSnapshot, {}, optionsSnapshot);
+
+      if (!battleSession.value.激活) {
+        const execution =
+          profile.default_turn_mode === 'full_battle'
+            ? await requestBattleFullBattle(apiProfile, profile, selectedData, runtimeOptions)
+            : await requestBattleSingleRound(apiProfile, profile, selectedData, runtimeOptions);
+        lastRuntimePayload.value = execution.payload;
+        lastRuntimeResult.value = execution.result;
+        lastRuntimeRawText.value = execution.rawText;
+        lastRuntimeRequestMessage.value = '测试请求已完成，未写入 battle_session';
+        return execution.result;
+      }
 
       if (profile.default_turn_mode === 'full_battle') {
         lastRuntimePayload.value = buildBattleRuntimePayload(profile, selectedData, {
@@ -474,7 +651,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       return execution.result;
     });
 
-  const executeConfiguredLootResolution = async (profile: BattleProfile, selectedData: Record<string, unknown>) =>
+  const executeConfiguredLootResolution = async (profile: BattleProfile, _selectedData: Record<string, unknown>) =>
     runRuntimeRequestAction(async () => {
       lastResolveError.value = '';
       if (!battleSession.value.激活) {
@@ -492,9 +669,9 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
 
       const apiProfile = resolveBattleApiProfile(profile);
       const sessionOptions = createBattleSessionRuntimeOptions(profile);
+      const selectedData = createSelectedRuntimeData(profile);
       const profileSnapshot = klona(profile);
-      const selectedDataSnapshot = klona(selectedData);
-      retryLastRuntimeAction = () => executeConfiguredLootResolution(profileSnapshot, selectedDataSnapshot);
+      retryLastRuntimeAction = () => executeConfiguredLootResolution(profileSnapshot, {});
       const lootExtraInstructions = [
         sessionOptions.extraInstructions,
         battleSession.value.runtime.settlement.check_prompt_needed ? '当前为 checked_loot，请根据额外检定或搜刮说明进行结算。' : '',
@@ -590,6 +767,11 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
   };
   const applyPreview = () => runAndRefresh(() => battleSessionController.applyPendingPreview(sourceMessageId.value));
   const finishBattle = () => runAndRefresh(() => battleSessionController.finishBattle(sourceMessageId.value));
+  const appendRuntimeChatMessage = (entry: {
+    role: BattleSession['runtime']['transcript'][number]['role'];
+    content: string;
+    label?: string;
+  }) => runAndRefresh(() => battleSessionController.appendRuntimeChatMessage(sourceMessageId.value, entry));
   const setOutputMode = (outputMode: BattleSession['output_mode']) =>
     runAndRefresh(() => battleSessionController.setOutputMode(sourceMessageId.value, outputMode));
   const commitBattle = (payload: { summary?: string; fullLog?: string; outputMode?: BattleSession['output_mode'] }) =>
@@ -601,13 +783,27 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     );
   const abandon = () => runAndRefresh(() => battleSessionController.abandonBattle(sourceMessageId.value));
   const close = () => {
-    window.top?.postMessage({ type: 'planeswalker:battle:close' }, '*');
+    const frameElement = window.frameElement as HTMLElement | null;
+    if (frameElement) {
+      frameElement.style.display = 'none';
+    }
+
+    const notifiedHosts = new Set<Window>();
+    for (const host of [window.parent, window.top]) {
+      if (!host || host === window || notifiedHosts.has(host)) {
+        continue;
+      }
+      notifiedHosts.add(host);
+      notifyBattleWindowClose(host);
+    }
   };
 
   return {
     mainState,
     battleSession,
     runtimeMainState,
+    rawMainState,
+    runtimeStatData,
     settings,
     apiProfiles,
     activeApiProfile,
@@ -665,6 +861,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     useMockPreview,
     applyPreview,
     finishBattle,
+    appendRuntimeChatMessage,
     setOutputMode,
     commitBattle,
     abandon,

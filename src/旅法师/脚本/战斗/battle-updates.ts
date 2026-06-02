@@ -88,6 +88,90 @@ export function mergeBattleFlatUpdates(
   return merged;
 }
 
+function normalizeBattleRuntimeUpdatePath(path: string): string | null {
+  const trimmed = path.trim().replace(/^selected_data\./u, '').replace(/^stat_data\./u, '');
+  if (!trimmed) {
+    return null;
+  }
+
+  const segments = _.toPath(trimmed).map(segment => String(segment).trim());
+  if (!segments.length || segments.some(segment => !segment || FORBIDDEN_PATH_SEGMENTS.has(segment))) {
+    return null;
+  }
+
+  return segments.join('.');
+}
+
+function mergeRuntimeValue(current: unknown, incoming: unknown): unknown {
+  if (_.isPlainObject(current) && _.isPlainObject(incoming)) {
+    const merged = klona(current) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(incoming as Record<string, unknown>)) {
+      merged[key] = mergeRuntimeValue(merged[key], value);
+    }
+    return merged;
+  }
+
+  return klona(incoming);
+}
+
+function setRuntimeUpdate(target: BattleFlatUpdates, path: string, value: unknown) {
+  const existing = _.get(target, path);
+  _.set(target, path, mergeRuntimeValue(existing, value));
+}
+
+export function mergeBattleRuntimeUpdates(
+  baseUpdates: BattleFlatUpdates,
+  nextUpdates: BattleFlatUpdates,
+): BattleFlatUpdates {
+  const merged: BattleFlatUpdates = {};
+  for (const updates of [baseUpdates, nextUpdates]) {
+    if (!_.isPlainObject(updates)) {
+      continue;
+    }
+    for (const [path, value] of Object.entries(updates)) {
+      const normalized = normalizeBattleRuntimeUpdatePath(path);
+      if (normalized) {
+        setRuntimeUpdate(merged, normalized, value);
+      }
+    }
+  }
+  return merged;
+}
+
+function resolveRuntimeApplyPath(state: Record<string, unknown>, normalizedPath: string): string {
+  if (_.has(state, normalizedPath)) {
+    return normalizedPath;
+  }
+
+  const firstSegment = _.toPath(normalizedPath)[0];
+  if (
+    firstSegment &&
+    !_.has(state, firstSegment) &&
+    _.isPlainObject(_.get(state, '角色数据')) &&
+    _.has(state, `角色数据.${normalizedPath}`)
+  ) {
+    return `角色数据.${normalizedPath}`;
+  }
+
+  return normalizedPath;
+}
+
+export function applyBattleRuntimeUpdates<T extends Record<string, unknown>>(state: T, updates: BattleFlatUpdates): T {
+  const nextState = klona(state);
+  if (!_.isPlainObject(updates)) {
+    return nextState;
+  }
+
+  for (const [path, value] of Object.entries(updates)) {
+    const normalized = normalizeBattleRuntimeUpdatePath(path);
+    if (normalized) {
+      const applyPath = resolveRuntimeApplyPath(nextState, normalized);
+      setRuntimeUpdate(nextState, applyPath, value);
+    }
+  }
+  return nextState;
+}
+
 export function applyValidatedBattleUpdates<T extends Record<string, unknown>>(
   state: T,
   updates: BattleValidatedUpdate[],

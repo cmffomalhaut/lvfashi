@@ -11,7 +11,7 @@ import { projectMainState, stateAccess, type StateAccessApi, type StateAccessTra
 import { commitBattleOutcome, type BattleCommitOptions } from './commit.ts';
 import { buildBattleRoundPrompt, createPendingPreviewFromPrompt } from './prompt.ts';
 import { battleAiResolver, type BattleAiResolver } from './resolve.ts';
-import { createPrebattleSnapshot, restorePrebattleSnapshot } from './snapshot.ts';
+import { createPrebattleSnapshot } from './snapshot.ts';
 
 export type ResumeOrRebuildResult = {
   kind: 'resume' | 'rebuild';
@@ -39,6 +39,7 @@ export type BattleRuntimePreviewApplication = {
 const now = () => Date.now();
 const rollD20 = () => _.random(1, 20);
 const darkPool = () => Array.from({ length: 5 }, () => rollD20());
+const MAX_TRANSCRIPT_ENTRIES = 80;
 
 function createFreshPlayerCheck() {
   return PlayerCheckSchema.parse(
@@ -93,6 +94,31 @@ function hasResolvedCombatants(session: Pick<BattleSession, 'pending_preview'>) 
   return Object.keys(allies).length + Object.keys(enemies).length > 0;
 }
 
+function appendRuntimeTranscript(
+  session: BattleSession,
+  entry: {
+    role: BattleSession['runtime']['transcript'][number]['role'];
+    content?: string;
+    label?: string;
+  },
+) {
+  const content = entry.content?.trim();
+  if (!content) {
+    return;
+  }
+
+  session.runtime.transcript = [
+    ...session.runtime.transcript,
+    {
+      id: `battle_chat_${now()}_${session.runtime.transcript.length + 1}`,
+      role: entry.role,
+      label: entry.label?.trim() || '',
+      content,
+      created_at: now(),
+    },
+  ].slice(-MAX_TRANSCRIPT_ENTRIES);
+}
+
 function assertActive(session: BattleSession) {
   if (!session.激活) {
     throw new Error('battle_session is not active');
@@ -119,6 +145,15 @@ function assignRuntimePreviewApplication(
   if (application.latestResult.settlement) {
     session.runtime.settlement = klona(application.latestResult.settlement);
   }
+  appendRuntimeTranscript(session, {
+    role: 'ai',
+    label: application.latestResult.type === 'loot' ? '结算' : '系统',
+    content:
+      application.latestResult.narration ||
+      application.latestResult.summary ||
+      application.latestResult.battleReport ||
+      session.pending_preview.summary,
+  });
 }
 
 function buildBattleSession(mainState: MainState, sourceMessageId: number, mode: 'resume' | 'rebuild'): BattleSession {
@@ -171,6 +206,7 @@ export function createBattleSessionController(
   const startBattle = async (sourceMessageId: number, mode: 'resume' | 'rebuild' = 'resume') =>
     access.editCanonicalState({
       sourceMessageId,
+      writeScope: 'battle_session',
       mutate: draft => {
         draft.battle_session = buildBattleSession(projectMainState(draft), sourceMessageId, mode);
       },
@@ -228,9 +264,6 @@ export function createBattleSessionController(
         assertActive(draft);
         if (draft.player_check.confirmed) {
           throw new Error('player_check is already confirmed');
-        }
-        if (draft.player_check.reroll_used >= 3) {
-          throw new Error('player_check reroll limit reached');
         }
         draft.player_check.roll = rollD20();
         draft.player_check.reroll_used += 1;
@@ -351,6 +384,23 @@ export function createBattleSessionController(
       },
     });
 
+  const appendRuntimeChatMessage = (
+    sourceMessageId: number,
+    entry: {
+      role: BattleSession['runtime']['transcript'][number]['role'];
+      content: string;
+      label?: string;
+    },
+  ) =>
+    access.editBattleSession({
+      sourceMessageId,
+      mutate: draft => {
+        assertActive(draft);
+        appendRuntimeTranscript(draft, entry);
+        draft.meta.updated_at = now();
+      },
+    });
+
   const applyRuntimeRoundPreview = (sourceMessageId: number, application: BattleRuntimePreviewApplication) =>
     access.editBattleSession({
       sourceMessageId,
@@ -405,14 +455,12 @@ export function createBattleSessionController(
   const abandonBattle = (sourceMessageId: number) =>
     access.editCanonicalState({
       sourceMessageId,
+      writeScope: 'battle_session',
       mutate: draft => {
         if (!draft.battle_session.激活) {
           throw new Error('battle_session is not active');
         }
-        const restored = restorePrebattleSnapshot(draft, draft.battle_session.prebattle_snapshot);
-        Object.assign(draft, restored, {
-          battle_session: BattleSessionSchema.parse({}, { reportInput: true }),
-        });
+        draft.battle_session = BattleSessionSchema.parse({}, { reportInput: true });
       },
       postCheck: (_before, candidate) => candidate.battle_session.激活 === false,
       postCheckMessage: 'battle_session was not cleared after abandon',
@@ -428,6 +476,7 @@ export function createBattleSessionController(
     mockPreview,
     applyPendingPreview,
     finishBattle,
+    appendRuntimeChatMessage,
     applyRuntimeRoundPreview,
     applyRuntimeFullBattleResult,
     applyRuntimeLootResult,

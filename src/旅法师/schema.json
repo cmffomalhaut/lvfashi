@@ -827,6 +827,37 @@
               "type": "boolean"
             }
           }
+        },
+        "transcript": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "default": {},
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "role": {
+                "default": "system",
+                "type": "string",
+                "enum": [
+                  "system",
+                  "player",
+                  "ai"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "number"
+              }
+            }
+          }
         }
       }
     }
