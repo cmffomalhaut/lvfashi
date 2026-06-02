@@ -2044,45 +2044,42 @@ body {
 }
 
 .battle-topbar--large {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 6px 8px;
+  display: grid;
+  gap: 4px;
+  min-height: auto;
+  padding: 5px 8px;
   border-bottom: 1px solid rgba(255, 243, 212, 0.2);
   background:
     linear-gradient(90deg, rgba(245, 34, 59, 0.18), transparent 42%),
     rgba(3, 4, 8, 0.92);
 }
 
-.battle-topbar__status {
+.battle-topbar--large .battle-topbar__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.battle-topbar--large .battle-topbar__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
 }
 
-.battle-topbar--large .battle-topbar__status strong {
-  display: block;
-  overflow: hidden;
-  color: var(--p5-paper);
-  font-size: 13px;
-  line-height: 1.15;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.battle-topbar--large .battle-topbar__status span {
-  display: block;
-  overflow: hidden;
+.battle-topbar--large .battle-topbar__mode {
   color: var(--p5-muted);
   font-size: 10px;
-  line-height: 1.15;
-  text-overflow: ellipsis;
+  line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.battle-topbar__actions {
+.battle-icon-group {
   display: flex;
-  flex: 0 0 auto;
   gap: 4px;
+  flex: 0 0 auto;
 }
 
 .battle-icon-btn--label {
@@ -2108,6 +2105,82 @@ body {
   background:
     linear-gradient(180deg, rgba(255, 243, 212, 0.035), rgba(255, 255, 255, 0.01)),
     rgba(1, 2, 5, 0.42);
+}
+
+/* ── P5 消息进入动画 ── */
+.msg-enter-active {
+  animation: msg-in 360ms cubic-bezier(0.18, 0.89, 0.32, 1.12);
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateX(32px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.battle-message-list {
+  display: grid;
+  gap: 8px;
+}
+
+/* ── 打字指示器 ── */
+.battle-typing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-right: auto;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.battle-typing__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--p5-paper);
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+
+.battle-typing__dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.battle-typing__dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.battle-typing__label {
+  margin-left: 4px;
+  color: var(--p5-muted);
+  font-size: 11px;
+}
+
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
+/* ── 状态提示行 ── */
+.battle-chat__status {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(255, 243, 212, 0.06);
+  color: var(--p5-muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .battle-message {

@@ -826,46 +826,51 @@
 
       <main class="battle-main">
         <header class="battle-topbar battle-topbar--large">
-          <div class="battle-topbar__status">
-            <strong>{{ battleSession.激活 ? `战斗中 · 第 ${battleSession.round.round_no} 回合` : '战斗前端' }}</strong>
-            <span>{{ battleSession.激活 ? `${battlePhaseLabel} · ${headerSourceText}` : '输入指令后可直接发送，或先点击骰子查看明骰结果。' }}</span>
-          </div>
           <div class="battle-topbar__actions">
-            <button class="battle-icon-btn battle-icon-btn--label" type="button" title="设置" @click="openSettingsPage">设置</button>
-            <button class="battle-icon-btn battle-icon-btn--label" type="button" title="骰子" :disabled="!canOpenDiceDialog" @click="openDiceDialog">骰子</button>
-            <button class="battle-icon-btn battle-icon-btn--label" type="button" title="关闭" @click="closeWindow">关闭</button>
+            <button class="btn btn--ghost btn--sm" type="button" @click="refreshBattleData">重新读取</button>
+            <button class="btn btn--primary btn--sm" type="button" :disabled="isResolving || isRuntimeRequestBusy" @click="resolveAgain">{{ rerunButtonLabel }}</button>
+            <button class="btn btn--warn btn--sm" type="button" @click="forceRebuild">重建战斗</button>
+          </div>
+          <div class="battle-topbar__meta">
+            <span class="battle-topbar__mode">{{ turnModeLabel }} · {{ runModeLabel }}</span>
+            <div class="battle-icon-group">
+              <button class="battle-icon-btn battle-icon-btn--label" type="button" title="设置" @click="openSettingsPage">设置</button>
+              <button class="battle-icon-btn battle-icon-btn--label" type="button" title="骰子" :disabled="!canOpenDiceDialog" @click="openDiceDialog">骰子</button>
+              <button class="battle-icon-btn battle-icon-btn--label" type="button" title="关闭" @click="closeWindow">关闭</button>
+            </div>
           </div>
         </header>
 
         <div class="battle-stage">
           <article class="battle-chat battle-chat--large">
-            <div class="battle-chat__log">
-              <div class="battle-message battle-message--system battle-message--system-compact">
-                <strong>{{ battleSession.激活 ? `第 ${battleSession.round.round_no} 回合` : '尚未开始战斗' }}</strong>
-                <span>{{ battleSession.激活 ? `${battlePhaseLabel} · ${turnModeLabel}` : '可直接发送测试请求；需要写入战斗态时再重建。' }}</span>
-                <span>
-                  {{ headerSourceText }} ·
-                  <template v-if="!isFreeformRuntime">明骰 {{ diceRollLabel }}</template>
-                  <template v-else>自由描述模式</template>
-                  · {{ isResolving || isRuntimeRequestBusy ? 'AI 处理中' : '待命' }}
-                </span>
-                <div class="battle-message__actions">
-                  <button class="btn btn--ghost btn--sm" type="button" @click="refreshBattleData">重新读取数据</button>
-                  <button class="btn btn--primary btn--sm" type="button" :disabled="isResolving || isRuntimeRequestBusy" @click="resolveAgain">
-                    {{ rerunButtonLabel }}
-                  </button>
-                  <button class="btn btn--warn btn--sm" type="button" @click="forceRebuild">重建战斗</button>
-                </div>
-              </div>
+            <div class="battle-chat__status">
+              <template v-if="battleSession.激活">
+                {{ battlePhaseLabel }}<template v-if="!isFreeformRuntime"> · 明骰 {{ diceRollLabel }}</template><template v-if="isResolving || isRuntimeRequestBusy"> · AI 处理中</template>
+              </template>
+              <template v-else>
+                可直接发送测试请求；需要写入战斗态时再重建。
+              </template>
+            </div>
 
-              <div
-                v-for="message in chatMessages"
-                :key="message.id"
-                class="battle-message"
-                :class="getChatMessageClass(message.role)"
-              >
-                <span class="message-label">{{ message.label || getChatMessageLabel(message.role) }}</span>
-                <p>{{ message.content }}</p>
+            <div class="battle-chat__log">
+
+              <TransitionGroup name="msg" tag="div" class="battle-message-list">
+                <div
+                  v-for="message in chatMessages"
+                  :key="message.id"
+                  class="battle-message"
+                  :class="getChatMessageClass(message.role)"
+                >
+                  <span class="message-label">{{ message.label || getChatMessageLabel(message.role) }}</span>
+                  <p>{{ message.content }}</p>
+                </div>
+              </TransitionGroup>
+
+              <div v-if="isTyping" class="battle-typing">
+                <span class="battle-typing__dot"></span>
+                <span class="battle-typing__dot"></span>
+                <span class="battle-typing__dot"></span>
+                <span class="battle-typing__label">AI 输入中...</span>
               </div>
 
               <div v-if="!chatMessages.length" class="battle-message battle-message--ai">
@@ -1241,6 +1246,7 @@ const effectiveDiceCheck = computed(() => {
   }
   return null;
 });
+const isTyping = computed(() => isResolving.value || isRuntimeRequestBusy.value);
 const diceRollLabel = computed(() => {
   const roll = effectiveDiceCheck.value?.roll ?? 0;
   return roll > 0 ? String(roll) : '--';
