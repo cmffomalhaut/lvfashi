@@ -39,6 +39,7 @@ type CanonicalTransactionConfig = {
   variableOption?: VariableOption;
   sourceMessageId?: number;
   maxRetries?: number;
+  writeScope?: 'canonical' | 'battle_session';
   mutate: (draft: CanonicalState, before: CanonicalState) => CanonicalState | void | Promise<CanonicalState | void>;
   postCheck?: (before: CanonicalState, candidate: CanonicalState) => boolean;
   postCheckMessage?: string;
@@ -63,7 +64,8 @@ type MemoryStateAccess = StateAccessApi & {
   setLatestMessageId: (messageId: number) => void;
 };
 
-export const LATEST_MESSAGE_VARIABLE_OPTION = Object.freeze({ type: 'message', message_id: 'latest' } as const);
+export const createLatestMessageVariableOption = (): VariableOption => ({ type: 'message', message_id: 'latest' });
+export const createMessageVariableOption = (messageId: number): VariableOption => ({ type: 'message', message_id: messageId });
 
 type RuntimeMessageIdGlobals = typeof globalThis & {
   getCurrentMessageId?: () => number | string | undefined;
@@ -116,6 +118,10 @@ function ensureScope(bindings: StateAccessBindings, sourceMessageId: number | un
   return currentMessageId === undefined || currentMessageId === sourceMessageId;
 }
 
+function isLatestMessageVariableOption(variableOption: VariableOption): boolean {
+  return _.get(variableOption, 'message_id') === 'latest';
+}
+
 export function projectMainState(state: CanonicalState): MainState {
   return MainStateSchema.parse(_.omit(state, 'battle_session'), { reportInput: true });
 }
@@ -125,19 +131,25 @@ export function projectBattleSession(state: CanonicalState): BattleSession {
 }
 
 export function createStateAccess(bindings: StateAccessBindings = runtimeBindings) {
-  const readCanonicalState = (variableOption: VariableOption = LATEST_MESSAGE_VARIABLE_OPTION): CanonicalState =>
+  const readCanonicalState = (variableOption: VariableOption = createLatestMessageVariableOption()): CanonicalState =>
     parseCanonicalState(bindings.readVariables(variableOption));
 
   const editCanonicalState = async ({
-    variableOption = LATEST_MESSAGE_VARIABLE_OPTION,
+    variableOption,
     sourceMessageId,
     maxRetries = 0,
+    writeScope = 'canonical',
     mutate,
     postCheck,
     postCheckMessage = 'post check failed',
   }: CanonicalTransactionConfig): Promise<StateAccessTransactionResult> => {
+    const scopedVariableOption =
+      variableOption ??
+      (sourceMessageId === undefined ? createLatestMessageVariableOption() : createMessageVariableOption(sourceMessageId));
+    const shouldGuardLatestScope = isLatestMessageVariableOption(scopedVariableOption);
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      if (!ensureScope(bindings, sourceMessageId)) {
+      if (shouldGuardLatestScope && !ensureScope(bindings, sourceMessageId)) {
         return createFailure('scope_guard_failed', 'source_message_id mismatch', attempt);
       }
 
@@ -145,7 +157,7 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
 
       await Promise.resolve(
         bindings.writeVariables(async variables => {
-          if (!ensureScope(bindings, sourceMessageId)) {
+          if (shouldGuardLatestScope && !ensureScope(bindings, sourceMessageId)) {
             result = createFailure('scope_guard_failed', 'source_message_id mismatch', attempt);
             return variables;
           }
@@ -166,10 +178,14 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
           }
 
           const nextVariables = klona(variables);
-          _.set(nextVariables, 'stat_data', parsed.data);
+          if (writeScope === 'battle_session') {
+            _.set(nextVariables, 'stat_data.battle_session', parsed.data.battle_session);
+          } else {
+            _.set(nextVariables, 'stat_data', parsed.data);
+          }
           result = { ok: true, attempt, before, after: parsed.data };
           return nextVariables;
-        }, variableOption),
+        }, scopedVariableOption),
       );
 
       const currentResult: StateAccessTransactionResult =
@@ -186,7 +202,7 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
   };
 
   const editMainState = async ({
-    variableOption = LATEST_MESSAGE_VARIABLE_OPTION,
+    variableOption = createLatestMessageVariableOption(),
     sourceMessageId,
     maxRetries = 0,
     mutate,
@@ -207,7 +223,7 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
     });
 
   const editBattleSession = async ({
-    variableOption = LATEST_MESSAGE_VARIABLE_OPTION,
+    variableOption,
     sourceMessageId,
     maxRetries = 0,
     mutate,
@@ -216,6 +232,7 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
       variableOption,
       sourceMessageId,
       maxRetries,
+      writeScope: 'battle_session',
       mutate: async draft => {
         const beforeBattleSession = projectBattleSession(draft);
         const draftBattleSession = klona(beforeBattleSession);
@@ -228,7 +245,7 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
       postCheckMessage: 'main-state projection changed during battle transaction',
     });
 
-  const clearBattleSession = (variableOption: VariableOption = LATEST_MESSAGE_VARIABLE_OPTION) =>
+  const clearBattleSession = (variableOption: VariableOption = createLatestMessageVariableOption()) =>
     editBattleSession({
       variableOption,
       mutate: draft => {
@@ -238,8 +255,9 @@ export function createStateAccess(bindings: StateAccessBindings = runtimeBinding
 
   return {
     readCanonicalState,
-    readMainState: (variableOption: VariableOption = LATEST_MESSAGE_VARIABLE_OPTION) => projectMainState(readCanonicalState(variableOption)),
-    readBattleSession: (variableOption: VariableOption = LATEST_MESSAGE_VARIABLE_OPTION) =>
+    readMainState: (variableOption: VariableOption = createLatestMessageVariableOption()) =>
+      projectMainState(readCanonicalState(variableOption)),
+    readBattleSession: (variableOption: VariableOption = createLatestMessageVariableOption()) =>
       projectBattleSession(readCanonicalState(variableOption)),
     editCanonicalState,
     editMainState,

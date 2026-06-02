@@ -241,6 +241,12 @@ export const BattleRuntimeStateSchema = z
     latest_resource_changes: z.array(trimmedString()).prefault([]),
     latest_warnings: z.array(trimmedString()).prefault([]),
     accumulated_updates: z.record(z.string(), z.unknown()).prefault({}),
+    history: z.array(z.object({
+      round_no: z.number().prefault(0),
+      type: z.enum(['round', 'full_battle', 'loot']).prefault('round'),
+      summary: trimmedString().prefault(''),
+      narration: trimmedString().prefault(''),
+    })).prefault([]),
     settlement: BattleRuntimeSettlementSchema.prefault({}),
     transcript: z.array(BattleRuntimeTranscriptEntrySchema).prefault([]),
   })

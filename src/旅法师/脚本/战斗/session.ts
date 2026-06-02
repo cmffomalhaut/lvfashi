@@ -45,7 +45,7 @@ function createFreshPlayerCheck() {
   return PlayerCheckSchema.parse(
     {
       strategy_text: '',
-      roll: rollD20(),
+      roll: 0,
       reroll_used: 0,
       confirmed: false,
     },
@@ -142,6 +142,15 @@ function assignRuntimePreviewApplication(
   session.runtime.latest_resource_changes = klona(application.latestResult.resourceChanges ?? []);
   session.runtime.latest_warnings = klona(application.latestResult.warnings ?? []);
   session.runtime.accumulated_updates = klona(application.accumulatedUpdates);
+  session.runtime.history = [
+    ...klona(session.runtime.history),
+    {
+      round_no: session.round.round_no,
+      type: application.latestResult.type,
+      summary: application.latestResult.summary || session.pending_preview.summary || '',
+      narration: application.latestResult.narration || '',
+    },
+  ];
   if (application.latestResult.settlement) {
     session.runtime.settlement = klona(application.latestResult.settlement);
   }
@@ -158,15 +167,13 @@ function assignRuntimePreviewApplication(
 
 function buildBattleSession(mainState: MainState, sourceMessageId: number, mode: 'resume' | 'rebuild'): BattleSession {
   const timestamp = now();
-  const hero = klona(mainState.主角.当前化身);
-  const heroAllyId = hero.id || 'avatar-main';
   const session = BattleSessionSchema.parse(
     {
       激活: true,
       meta: {
         source_message_id: sourceMessageId,
         mode,
-        hero_ally_id: heroAllyId,
+        hero_ally_id: '',
         created_at: timestamp,
         updated_at: timestamp,
       },
@@ -181,10 +188,7 @@ function buildBattleSession(mainState: MainState, sourceMessageId: number, mode:
         cursor: 0,
       },
       combatants: {
-        allies: {
-          ...klona(mainState.队伍),
-          [heroAllyId]: hero,
-        },
+        allies: klona(mainState.队伍),
         enemies: klona(mainState.敌方),
       },
       prebattle_snapshot: createPrebattleSnapshot(mainState, sourceMessageId),
@@ -265,8 +269,12 @@ export function createBattleSessionController(
         if (draft.player_check.confirmed) {
           throw new Error('player_check is already confirmed');
         }
+        const hadPreviousRoll = draft.player_check.roll > 0;
+        if (hadPreviousRoll && draft.player_check.reroll_used >= 99) {
+          throw new Error('player_check reroll limit reached');
+        }
         draft.player_check.roll = rollD20();
-        draft.player_check.reroll_used += 1;
+        draft.player_check.reroll_used += hadPreviousRoll ? 1 : 0;
         draft.meta.updated_at = now();
       },
     });
@@ -410,6 +418,16 @@ export function createBattleSessionController(
         assignRuntimePreviewApplication(draft, application, application.latestResult.battleEnd ? 'finished' : 'preview');
         if (draft.phase === 'finished') {
           draft.round_checkpoint = captureRoundCheckpoint(draft, 'finished');
+        } else {
+          draft.combatants = klona(draft.pending_preview.proposed_combatants);
+          draft.phase = 'player_input';
+          draft.round.round_no += 1;
+          draft.round.acting_side = draft.round.acting_side === '玩家方' ? '敌方' : '玩家方';
+          draft.player_check = createFreshPlayerCheck();
+          draft.shared_dark_pool.values = darkPool();
+          draft.shared_dark_pool.cursor = 0;
+          draft.pending_preview = PendingPreviewSchema.parse({}, { reportInput: true });
+          draft.round_checkpoint = captureRoundCheckpoint(draft, 'player_input');
         }
         draft.meta.updated_at = now();
       },

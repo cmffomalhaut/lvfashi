@@ -1,12 +1,18 @@
 <template>
   <div class="battle-shell">
+    <div v-if="toastMessage" class="battle-toast" :class="`battle-toast--${toastMessage.type}`" role="status" aria-live="polite">
+      <strong>{{ toastMessage.title }}</strong>
+      <span>{{ toastMessage.message }}</span>
+    </div>
+
     <section v-show="activeBattleTab === 'settings'" class="battle-settings-page">
       <header class="page-header">
         <button class="battle-icon-btn battle-icon-btn--back" type="button" @click="closeSettingsPage">&lt; 返回</button>
         <div class="page-header__title">
           <strong>设置</strong>
-          <span>{{ headerSourceText }}</span>
+          <span>{{ activeSectionLabel }} · {{ headerSourceText }}</span>
         </div>
+        <span v-if="isSettingsBusy" class="settings-busy-indicator">处理中</span>
       </header>
 
       <nav class="section-switch" aria-label="设置分组">
@@ -16,6 +22,7 @@
           class="section-pill"
           :class="activeSettingsSection === item.key ? 'section-pill--active' : ''"
           type="button"
+          :aria-current="activeSettingsSection === item.key ? 'page' : undefined"
           @click="activeSettingsSection = item.key"
         >
           {{ item.label }}
@@ -980,6 +987,13 @@ import { useBattleWindowStore } from './store';
 type BattlePromptTemplateKey = keyof BattlePromptConfig;
 type BattleUiTab = 'play' | 'settings';
 type SettingsSectionKey = 'api' | 'prompt' | 'rules' | 'worldbook' | 'fields' | 'runtime';
+type ToastType = 'success' | 'error' | 'warn';
+type ToastMessage = {
+  id: number;
+  title: string;
+  message: string;
+  type: ToastType;
+};
 
 const store = useBattleWindowStore();
 const {
@@ -1035,6 +1049,7 @@ const selectedWorldbookName = ref('');
 const selectedWorldbookEntryIds = ref<string[]>([]);
 const runtimeDraftError = ref('');
 const uiActionError = ref('');
+const toastMessage = ref<ToastMessage | null>(null);
 const lastDiceMessage = ref('');
 const refreshNotice = ref('');
 const lastDicePlayerCheck = ref<{ roll: number; reroll_used: number; confirmed: boolean } | null>(null);
@@ -1043,6 +1058,7 @@ const diceAnimating = ref(false);
 const activeBattleTab = ref<BattleUiTab>('play');
 const activeSettingsSection = ref<SettingsSectionKey>('api');
 let diceAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 const settingsSections: Array<{ key: SettingsSectionKey; label: string }> = [
   { key: 'api', label: 'API' },
   { key: 'prompt', label: '提示词' },
@@ -1059,6 +1075,7 @@ const apiEndpointPresets = [
 ];
 const canRemoveApiProfile = computed(() => apiProfiles.value.length > 1);
 const canRemoveBattleProfile = computed(() => battleProfiles.value.length > 1);
+const isSettingsBusy = computed(() => isApiBusy.value || isFieldAnalysisBusy.value || isWorldbookBusy.value || isRuntimeRequestBusy.value);
 const apiProfileModelOptions = computed(() => {
   const candidateIds = [apiProfileDraft.value?.id, activeApiProfile.value?.id].filter((id): id is string => Boolean(id));
   for (const id of candidateIds) {
@@ -1253,6 +1270,7 @@ const canSendBattleCommand = computed(
 const headerSourceText = computed(() =>
   sourceMessageId.value >= 0 ? `当前楼层 ${sourceMessageId.value}` : '当前楼层未定位',
 );
+const activeSectionLabel = computed(() => settingsSections.find(item => item.key === activeSettingsSection.value)?.label ?? '设置');
 const battlePhaseLabel = computed(() => {
   switch (battleSession.value.phase) {
     case 'idle':
@@ -1458,8 +1476,24 @@ const runUiAction = async (action: () => Promise<void>) => {
     if (message !== lastResolveError.value && message !== lastRuntimeRequestError.value) {
       uiActionError.value = message;
     }
+    showToast('操作失败', message, 'error');
     console.error('[planeswalker.battle-window] action failed', error);
   }
+};
+const showToast = (title: string, message: string, type: ToastType = 'success') => {
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+  }
+  toastMessage.value = {
+    id: Date.now(),
+    title,
+    message,
+    type,
+  };
+  toastTimer = setTimeout(() => {
+    toastMessage.value = null;
+    toastTimer = null;
+  }, 2200);
 };
 const startBattle = async () => {
   await runUiAction(() => store.startBattle());
@@ -1527,7 +1561,10 @@ const forceRebuild = async () => {
   });
 };
 const saveStrategy = async () => {
-  await runUiAction(() => store.saveStrategy(strategyDraft.value));
+  await runUiAction(async () => {
+    await store.saveStrategy(strategyDraft.value);
+    showToast('已保存', '战斗策略已写入当前战斗会话');
+  });
 };
 const syncLastDiceCheckFromResult = (result: unknown) => {
   const playerCheck = _.get(result, 'after.battle_session.player_check');
@@ -1672,6 +1709,7 @@ const saveApiProfileDraft = async () => {
   await runUiAction(async () => {
     const settings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
     syncApiProfileDraftFromSettings(settings, apiProfileDraft.value!.id);
+    showToast('接口已保存', apiProfileDraft.value?.name || '当前 API 配置已更新');
   });
 };
 const removeCurrentApiProfile = async () => {
@@ -1681,6 +1719,7 @@ const removeCurrentApiProfile = async () => {
   await runUiAction(async () => {
     const profile = await store.removeApiProfile(apiProfileDraft.value!.id);
     apiProfileDraft.value = profile ? klona(profile) : null;
+    showToast('接口已删除', profile ? `已切换到 ${profile.name || '备用接口'}` : '当前没有可用接口', profile ? 'success' : 'warn');
   });
 };
 const applyApiEndpointPreset = (event: Event) => {
@@ -1721,6 +1760,7 @@ const saveBattleProfileDraft = async () => {
     syncBattleProfileDraftFromSettings(settings, draft.id);
     promptNotice.value = '战斗配置与 Prompt 已保存';
     promptError.value = '';
+    showToast('战斗配置已保存', draft.name || '当前战斗配置已更新');
   });
 };
 const syncDraftWorldbooks = (importedWorldbooks: BattleProfile['context']['imported_worldbooks']) => {
@@ -1797,6 +1837,7 @@ const removeCurrentBattleProfile = async () => {
     battleProfileDraft.value = profile ? klona(profile) : null;
     promptNotice.value = '';
     promptError.value = '';
+    showToast('战斗配置已删除', profile ? `已切换到 ${profile.name || '备用配置'}` : '当前没有可用战斗配置', profile ? 'success' : 'warn');
   });
 };
 const toggleActivePrompt = () => {
@@ -1814,6 +1855,7 @@ const discoverModels = async () => {
     if (!apiProfileDraft.value?.model && models[0]) {
       apiProfileDraft.value!.model = models[0];
     }
+    showToast('模型列表已更新', models.length ? `已拉取 ${models.length} 个模型` : '请求成功，但没有解析到模型', models.length ? 'success' : 'warn');
   });
 };
 const saveAndDiscoverModels = async () => {
@@ -1829,6 +1871,7 @@ const saveAndDiscoverModels = async () => {
       const nextSettings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
       syncApiProfileDraftFromSettings(nextSettings, apiProfileDraft.value!.id);
     }
+    showToast('模型列表已更新', models.length ? `已保存接口并拉取 ${models.length} 个模型` : '接口已保存，但没有解析到模型', models.length ? 'success' : 'warn');
   });
 };
 const applyDiscoveredModel = (modelOption: string) => {
@@ -1844,7 +1887,10 @@ const testCurrentApiProfile = async () => {
   if (!apiProfileDraft.value) {
     return;
   }
-  await runUiAction(() => store.testApiProfile(apiProfileDraft.value!));
+  await runUiAction(async () => {
+    const result = await store.testApiProfile(apiProfileDraft.value!);
+    showToast(result.ok ? '连接测试成功' : '连接测试失败', result.message || '无额外说明', result.ok ? 'success' : 'error');
+  });
 };
 const saveAndTestApiProfile = async () => {
   if (!apiProfileDraft.value) {
@@ -1853,7 +1899,8 @@ const saveAndTestApiProfile = async () => {
   await runUiAction(async () => {
     const settings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
     syncApiProfileDraftFromSettings(settings, apiProfileDraft.value!.id);
-    await store.testApiProfile(apiProfileDraft.value!);
+    const result = await store.testApiProfile(apiProfileDraft.value!);
+    showToast(result.ok ? '接口已保存并测试成功' : '接口已保存但测试失败', result.message || '无额外说明', result.ok ? 'success' : 'error');
   });
 };
 const runFieldAnalysis = async () => {
@@ -2100,3 +2147,145 @@ const formatTimestamp = (timestamp: number) => {
 };
 const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
 </script>
+
+<style scoped>
+.battle-toast {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 30;
+  display: grid;
+  gap: 3px;
+  max-width: min(360px, calc(100vw - 28px));
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 243, 212, 0.28);
+  border-radius: 10px;
+  background: rgba(6, 7, 11, 0.96);
+  color: var(--p5-paper);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.42), 3px 4px 0 rgba(0, 0, 0, 0.58);
+}
+
+.battle-toast strong {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.battle-toast span {
+  color: var(--p5-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.battle-toast--success {
+  border-color: rgba(134, 239, 172, 0.5);
+}
+
+.battle-toast--error {
+  border-color: rgba(248, 113, 113, 0.68);
+}
+
+.battle-toast--warn {
+  border-color: rgba(255, 209, 102, 0.58);
+}
+
+.settings-busy-indicator {
+  align-self: center;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 209, 102, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 209, 102, 0.1);
+  color: var(--p5-gold);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.battle-settings-page :deep(.btn),
+.battle-settings-page :deep(.form-control),
+.battle-settings-page :deep(.rule-toggle),
+.section-pill {
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, opacity 160ms ease;
+}
+
+.battle-settings-page :deep(.btn:disabled),
+.battle-settings-page :deep(.form-control:disabled),
+.battle-settings-page :deep(select:disabled),
+.battle-settings-page :deep(input:disabled),
+.battle-settings-page :deep(textarea:disabled),
+.battle-settings-page :deep(.rule-toggle:disabled),
+.section-pill:disabled {
+  border-color: rgba(255, 243, 212, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(255, 243, 212, 0.42);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.battle-settings-page :deep(.btn:hover:not(:disabled)),
+.section-pill:hover:not(:disabled) {
+  border-color: rgba(255, 209, 102, 0.52);
+}
+
+.battle-settings-page :deep(.json-preview) {
+  max-height: 280px;
+  border-color: rgba(255, 209, 102, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 243, 212, 0.035), rgba(255, 255, 255, 0.015)),
+    rgba(1, 2, 5, 0.92);
+  color: #f6f0df;
+  font-size: 12px;
+  line-height: 1.65;
+  tab-size: 2;
+}
+
+@media (min-width: 900px) {
+  .battle-settings-page {
+    display: grid;
+    grid-template-columns: 184px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    align-items: start;
+    gap: 10px 12px;
+    padding: 10px;
+  }
+
+  .battle-settings-page :deep(.page-header) {
+    grid-column: 1 / -1;
+  }
+
+  .section-switch {
+    position: sticky;
+    top: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid rgba(255, 243, 212, 0.16);
+    border-radius: 10px 18px 10px 10px;
+    background: rgba(6, 7, 11, 0.94);
+    box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.46);
+  }
+
+  .section-pill {
+    min-height: 34px;
+    padding: 0 10px;
+    border-radius: 8px;
+    text-align: left;
+    font-size: 12px;
+  }
+
+  .section-pill--active {
+    box-shadow: inset 4px 0 0 var(--p5-gold);
+  }
+
+  .battle-settings-page > :deep(.card) {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  .battle-settings-page :deep(.settings-card--api .settings-stack),
+  .battle-settings-page :deep(.settings-card--prompt .settings-stack) {
+    grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.35fr) !important;
+    align-items: start;
+  }
+}
+</style>

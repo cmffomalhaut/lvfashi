@@ -8,7 +8,7 @@
       <span class="field-tree-node__actions">
         <span>{{ kindLabel }}</span>
         <button class="btn btn--ghost btn--sm" type="button" @click.prevent.stop="emit('toggle-select', node.path)">
-          {{ selected ? '已选中' : '加入勾选' }}
+          {{ actionLabel }}
         </button>
       </span>
     </summary>
@@ -20,7 +20,7 @@
           v-for="child in node.children"
           :key="child.key"
           :node="child"
-          :selected-paths="selectedPaths"
+          :selected-fields="selectedFields"
           :depth="depth + 1"
           @toggle-select="emit('toggle-select', $event)"
         />
@@ -30,11 +30,15 @@
 </template>
 
 <script setup lang="ts">
-import type { BattleFieldTreeNode as BattleFieldTreeNodeShape } from '../../脚本/战斗/field-selection.ts';
+import {
+  hasIncludedBattleFieldAncestor,
+  type BattleFieldTreeNode as BattleFieldTreeNodeShape,
+} from '../../脚本/战斗/field-selection.ts';
+import type { BattleSelectedField } from '../../脚本/战斗/ai-profile.ts';
 
 const props = defineProps<{
   node: BattleFieldTreeNodeShape;
-  selectedPaths: string[];
+  selectedFields: BattleSelectedField[];
   depth?: number;
 }>();
 
@@ -43,7 +47,13 @@ const emit = defineEmits<{
 }>();
 
 const depth = computed(() => props.depth ?? 0);
-const selected = computed(() => props.selectedPaths.includes(props.node.path));
+const explicitField = computed(() => props.selectedFields.find(field => field.path === props.node.path));
+const actionLabel = computed(() => {
+  if (explicitField.value) {
+    return explicitField.value.enabled ? '移除发送' : '移除排除';
+  }
+  return hasIncludedBattleFieldAncestor(props.selectedFields, props.node.path) ? '排除子级' : '加入发送';
+});
 const kindLabel = computed(() => {
   switch (props.node.valueKind) {
     case 'array':

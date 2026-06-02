@@ -796,6 +796,33 @@
           },
           "additionalProperties": {}
         },
+        "history": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "round_no": {
+                "type": "number"
+              },
+              "type": {
+                "default": "round",
+                "type": "string",
+                "enum": [
+                  "round",
+                  "full_battle",
+                  "loot"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "narration": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "settlement": {
           "default": {},
           "type": "object",

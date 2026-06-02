@@ -24,6 +24,39 @@ function normalizeFieldPath(path: string): string {
   return path.replace(/^stat_data\./u, '').replace(/^\.+/u, '').trim();
 }
 
+function stableStructureStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(entry => stableStructureStringify(entry)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([lhs], [rhs]) => lhs.localeCompare(rhs, 'zh-Hans-CN'))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStructureStringify(entry)}`)
+      .join(',')}}`;
+  }
+  return typeof value;
+}
+
+export function buildBattleFieldSelectionSourceHash(statData: Record<string, unknown>): string {
+  const source = stableStructureStringify(_.omit(statData, 'battle_session'));
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return `stat-${hash.toString(16)}`;
+}
+
+function isSameOrAncestorPath(ancestorPath: string, targetPath: string): boolean {
+  const normalizedAncestor = normalizeFieldPath(ancestorPath);
+  const normalizedTarget = normalizeFieldPath(targetPath);
+  return (
+    normalizedAncestor === normalizedTarget ||
+    normalizedTarget.startsWith(`${normalizedAncestor}.`) ||
+    normalizedTarget.startsWith(`${normalizedAncestor}[`)
+  );
+}
+
 export function inferBattleFieldValueKind(value: unknown): BattleFieldValueKind {
   if (Array.isArray(value)) {
     return 'array';
@@ -157,6 +190,30 @@ export function upsertBattleSelectedField(
   return nextFields;
 }
 
+export function resolveBattleFieldSelectionState(
+  selectedFields: BattleSelectedField[],
+  path: string,
+): 'included' | 'excluded' {
+  const normalizedPath = normalizeFieldPath(path);
+  const matchedField = selectedFields
+    .filter(field => isSameOrAncestorPath(field.path, normalizedPath))
+    .sort((lhs, rhs) => normalizeFieldPath(rhs.path).length - normalizeFieldPath(lhs.path).length)[0];
+
+  return matchedField?.enabled ? 'included' : 'excluded';
+}
+
+export function hasIncludedBattleFieldAncestor(selectedFields: BattleSelectedField[], path: string): boolean {
+  const normalizedPath = normalizeFieldPath(path);
+  return selectedFields.some(
+    field => field.enabled && normalizeFieldPath(field.path) !== normalizedPath && isSameOrAncestorPath(field.path, normalizedPath),
+  );
+}
+
+export function removeBattleSelectedField(fields: BattleSelectedField[], path: string): BattleSelectedField[] {
+  const normalizedPath = normalizeFieldPath(path);
+  return fields.filter(field => normalizeFieldPath(field.path) !== normalizedPath);
+}
+
 export function extractSelectedBattleData(
   statData: Record<string, unknown>,
   selectedFields: BattleSelectedField[],
@@ -164,22 +221,21 @@ export function extractSelectedBattleData(
   const selectedData: Record<string, unknown> = {};
   const warnings: string[] = [];
 
-  for (const field of selectedFields) {
-    if (!field.enabled) {
+  const normalizedFields = selectedFields
+    .map(field => ({ ...field, path: normalizeFieldPath(field.path) }))
+    .filter(field => field.path)
+    .sort((lhs, rhs) => lhs.path.length - rhs.path.length);
+
+  for (const field of normalizedFields) {
+    if (!_.has(statData, field.path)) {
+      warnings.push(`字段不存在：${field.path}`);
       continue;
     }
-
-    const normalizedPath = normalizeFieldPath(field.path);
-    if (!normalizedPath) {
-      continue;
+    if (field.enabled) {
+      _.set(selectedData, field.path, klona(_.get(statData, field.path)));
+    } else {
+      _.unset(selectedData, field.path);
     }
-
-    if (!_.has(statData, normalizedPath)) {
-      warnings.push(`字段不存在：${normalizedPath}`);
-      continue;
-    }
-
-    _.set(selectedData, normalizedPath, klona(_.get(statData, normalizedPath)));
   }
 
   return { selectedData, warnings };
@@ -188,10 +244,12 @@ export function extractSelectedBattleData(
 export function buildUpdatedFieldSelectionConfig(
   fieldSelection: BattleFieldSelectionConfig,
   selectedFields: BattleSelectedField[],
+  sourceDataHash = fieldSelection.source_data_hash,
 ): BattleFieldSelectionConfig {
   return {
     ...fieldSelection,
     selected_fields: selectedFields,
+    source_data_hash: sourceDataHash,
     manual_review_required: false,
   };
 }

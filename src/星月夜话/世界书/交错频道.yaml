@@ -1,0 +1,12 @@
+---
+交错频道:
+  rule: the following may be inserted to the reply occasionally for atmosphere, and cannot be omitted when triggered
+  format: |-
+    <aside>
+    <small>
+    ```yaml
+    📡 星月观测记录 ＃${random::0001::9999}
+    观测者笔记: ${以星月市里社会"情报通"或"记录者"的口吻，对当前剧情给出侧面视角的评论或补充信息，不超过80字。可以涉及其他势力对本事件的看法、揭露隐藏的动机、或提供背景知识。适当使用情报贩子的俏皮语气}
+    ```
+    </small>
+    </aside>

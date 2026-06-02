@@ -1,4 +1,5 @@
 import { parseString } from '../../../../util/common.ts';
+import { buildBattleFieldSelectionSourceHash } from './field-selection.ts';
 import {
   type BattleApiProfile,
   type BattleFieldAnalysisPayload,
@@ -6,7 +7,6 @@ import {
   type BattleFieldSelectionConfig,
   type BattleFieldSuggestion,
   type BattleProfile,
-  type BattlePromptTemplate,
   type BattleSelectedField,
 } from './ai-profile.ts';
 import { BattleAiParseError, requestBattleChatCompletion } from './api-client.ts';
@@ -33,47 +33,15 @@ export type BattleFieldAnalysisExecutionResult = {
   rawText: string;
 };
 
-function buildFieldAnalysisSystemPrompt(): string {
-  return [
-    '你是战斗字段分析器。',
-    '你的任务是根据战斗协议和当前 stat_data，挑出正式战斗请求必须观察或可能回写的字段路径。',
-    '必须遵守：',
-    '1. 只关注战斗判定、资源变化、状态变化、战利品结算直接相关的字段。',
-    '2. 优先最小必要字段集，不要把无关设定、纯背景文本或 battle_session 带进去。',
-    '3. path 使用 stat_data 内部路径，不要带最外层 stat_data. 前缀。',
-    '4. 若某些关键字段名称不明确，可在 warnings 里提醒玩家人工补查。',
-    '5. 只能返回 JSON，不要输出解释性前后缀。',
-  ].join('\n');
-}
-
-function buildFieldAnalysisUserPrompt(): string {
-  return [
-    '请分析下面的战斗字段请求，返回推荐字段列表。',
-    '若你判断某条战斗协议需要观察 HP、MP、护盾、状态、背包、敌方单位等信息，请明确列出路径。',
-    '若不同 run_mode 对字段依赖不同，也请按当前 run_mode 保守裁定。',
-  ].join('\n');
-}
-
-function buildFieldAnalysisOutputContractPrompt(): string {
-  return [
-    '返回 JSON 结构：',
-    '{',
-    '  "fields": [{ "path": "主角.当前化身.HP当前", "label": "主角当前 HP", "reason": "..." }],',
-    '  "warnings": ["..."]',
-    '}',
-    '要求：fields 和 warnings 必须始终存在。',
-  ].join('\n');
-}
-
-function resolvePromptContent(prompt: BattlePromptTemplate) {
+function resolvePromptContent(battleProfile: BattleProfile) {
+  const prompt = battleProfile.prompts.field_analysis;
   if (!prompt.enabled) {
-    throw new Error('字段分析 Prompt 已禁用，请先在 Prompt 配置中启用');
+    throw new Error('字段分析 Prompt 已禁用');
   }
-
   return {
-    systemPrompt: prompt.system_prompt.trim() || buildFieldAnalysisSystemPrompt(),
-    userPrompt: prompt.user_prompt.trim() || buildFieldAnalysisUserPrompt(),
-    outputContractPrompt: prompt.output_contract_prompt.trim() || buildFieldAnalysisOutputContractPrompt(),
+    systemPrompt: prompt.system_prompt,
+    userPrompt: prompt.user_prompt,
+    outputContractPrompt: prompt.output_contract_prompt,
   };
 }
 
@@ -106,12 +74,17 @@ function createAnalysisInputHash(payload: BattleFieldAnalysisPayload): string {
   return `fa-${hash.toString(16)}`;
 }
 
-function normalizeFieldSuggestions(fields: BattleFieldSuggestion[]): BattleSelectedField[] {
+function normalizeFieldSuggestions(fields: BattleFieldSuggestion[], statData: Record<string, unknown>) {
   const usedPaths = new Set<string>();
-
-  return fields.flatMap(field => {
+  const warnings: string[] = [];
+  const normalizedFields = fields.flatMap(field => {
     const normalizedPath = normalizeFieldPath(field.path);
     if (!normalizedPath || usedPaths.has(normalizedPath)) {
+      return [];
+    }
+
+    if (!_.has(statData, normalizedPath)) {
+      warnings.push(`字段不存在，已忽略：${normalizedPath}`);
       return [];
     }
 
@@ -127,6 +100,8 @@ function normalizeFieldSuggestions(fields: BattleFieldSuggestion[]): BattleSelec
       },
     ];
   });
+
+  return { normalizedFields, warnings };
 }
 
 export function buildBattleFieldAnalysisPayload(
@@ -153,7 +128,7 @@ export async function analyzeBattleFields(
   statData: Record<string, unknown>,
 ): Promise<BattleFieldAnalysisExecutionResult> {
   const payload = buildBattleFieldAnalysisPayload(battleProfile, statData);
-  const promptContent = resolvePromptContent(battleProfile.prompts.field_analysis);
+  const promptContent = resolvePromptContent(battleProfile);
   const completion = await requestBattleChatCompletion(
     apiProfile,
     [
@@ -192,7 +167,8 @@ export async function analyzeBattleFields(
       },
     );
   }
-  const normalizedFields = normalizeFieldSuggestions(parsed.fields);
+  const { normalizedFields, warnings: pathWarnings } = normalizeFieldSuggestions(parsed.fields, payload.stat_data);
+  const mergedWarnings = _.uniq([...parsed.warnings, ...pathWarnings]);
 
   return {
     payload,
@@ -202,12 +178,13 @@ export async function analyzeBattleFields(
         label: field.label,
         reason: field.reason,
       })),
-      warnings: parsed.warnings,
+      warnings: mergedWarnings,
     },
     fieldSelection: {
       selected_fields: normalizedFields,
-      analysis_warnings: parsed.warnings,
+      analysis_warnings: mergedWarnings,
       last_analysis_input_hash: createAnalysisInputHash(payload),
+      source_data_hash: buildBattleFieldSelectionSourceHash(statData),
       last_analysis_at: Date.now(),
       manual_review_required: true,
     },
