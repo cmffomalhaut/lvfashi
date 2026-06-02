@@ -1,6 +1,6 @@
 import { klona } from 'klona';
 import type { BattleFullResult, BattleLootItem, BattleLootResult, BattleRoundResult } from './ai-profile.ts';
-import { applyBattleFlatUpdates, mergeBattleFlatUpdates } from './battle-updates.ts';
+import { applyBattleRuntimeUpdates, mergeBattleRuntimeUpdates } from './battle-updates.ts';
 import {
   MainStateSchema,
   PendingPreviewSchema,
@@ -13,31 +13,12 @@ function sanitizeKeySegment(value: string, fallback: string): string {
   return sanitized || fallback;
 }
 
-function resolveHeroAndTeam(session: BattleSession) {
-  const heroId = session.meta.hero_ally_id || session.prebattle_snapshot.主角.当前化身.id;
-  const allies = klona(session.combatants.allies);
-  const hero = heroId && allies[heroId] ? klona(allies[heroId]) : klona(session.prebattle_snapshot.主角.当前化身);
-
-  if (heroId && allies[heroId]) {
-    delete allies[heroId];
-  }
-
-  return {
-    hero,
-    team: allies,
-  };
-}
-
 export function projectMainStateFromBattleSession(session: BattleSession): MainState {
-  const { hero, team } = resolveHeroAndTeam(session);
   return MainStateSchema.parse(
     {
       世界: klona(session.prebattle_snapshot.世界),
-      主角: {
-        ...klona(session.prebattle_snapshot.主角),
-        当前化身: hero,
-      },
-      队伍: team,
+      主角: klona(session.prebattle_snapshot.主角),
+      队伍: klona(session.combatants.allies),
       敌方: klona(session.combatants.enemies),
       背包: klona(session.prebattle_snapshot.背包),
       任务: klona(session.prebattle_snapshot.任务),
@@ -47,13 +28,9 @@ export function projectMainStateFromBattleSession(session: BattleSession): MainS
   );
 }
 
-function buildCombatantsFromMainState(session: BattleSession, mainState: MainState) {
-  const heroAllyId = session.meta.hero_ally_id || mainState.主角.当前化身.id || 'avatar-main';
+function buildCombatantsFromMainState(mainState: MainState) {
   return {
-    allies: {
-      ...klona(mainState.队伍),
-      [heroAllyId]: klona(mainState.主角.当前化身),
-    },
+    allies: klona(mainState.队伍),
     enemies: klona(mainState.敌方),
   };
 }
@@ -83,6 +60,9 @@ function buildFullBattleWorldEvents(session: BattleSession, result: BattleFullRe
   result.rounds.forEach(round => {
     events[`${baseKey}_round_${round.round_index}`] = round.summary || round.narration || `第${round.round_index}回合`;
   });
+  result.loot_result.special_findings.forEach((finding, index) => {
+    events[`${baseKey}_loot_finding_${index + 1}`] = `${finding.name || `发现 ${index + 1}`}：${finding.description || finding.reason || '无补充说明'}`;
+  });
 
   return events;
 }
@@ -107,13 +87,19 @@ export function buildRuntimeMainState(
   accumulatedUpdates: Record<string, unknown> = session.runtime.accumulated_updates,
 ): MainState {
   const baseState = projectMainStateFromBattleSession(session);
-  return _.isEmpty(accumulatedUpdates)
-    ? baseState
-    : MainStateSchema.parse(applyBattleFlatUpdates(baseState, accumulatedUpdates), { reportInput: true });
+  if (_.isEmpty(accumulatedUpdates)) {
+    return baseState;
+  }
+
+  try {
+    return MainStateSchema.parse(applyBattleRuntimeUpdates(baseState, accumulatedUpdates), { reportInput: true });
+  } catch {
+    return baseState;
+  }
 }
 
 export function createPendingPreviewFromRoundResult(session: BattleSession, result: BattleRoundResult) {
-  const accumulatedUpdates = mergeBattleFlatUpdates(session.runtime.accumulated_updates, result.selected_data_updates);
+  const accumulatedUpdates = mergeBattleRuntimeUpdates(session.runtime.accumulated_updates, result.selected_data_updates);
   const nextMainState = buildRuntimeMainState(session, accumulatedUpdates);
 
   return {
@@ -121,7 +107,7 @@ export function createPendingPreviewFromRoundResult(session: BattleSession, resu
       {
         summary: result.summary,
         proposed_world_events: buildRoundWorldEvents(session, result),
-        proposed_combatants: buildCombatantsFromMainState(session, nextMainState),
+        proposed_combatants: buildCombatantsFromMainState(nextMainState),
         proposed_loot: {},
       },
       { reportInput: true },
@@ -131,16 +117,18 @@ export function createPendingPreviewFromRoundResult(session: BattleSession, resu
 }
 
 export function createPendingPreviewFromFullBattleResult(session: BattleSession, result: BattleFullResult) {
-  const accumulatedUpdates = mergeBattleFlatUpdates(session.runtime.accumulated_updates, result.final_selected_data_updates);
+  const battleUpdates = mergeBattleRuntimeUpdates(session.runtime.accumulated_updates, result.final_selected_data_updates);
+  const accumulatedUpdates = mergeBattleRuntimeUpdates(battleUpdates, result.loot_mvu_updates);
   const nextMainState = buildRuntimeMainState(session, accumulatedUpdates);
+  const nextLoot = Object.fromEntries(result.loot_result.loot_items.map(createLootRecord));
 
   return {
     preview: PendingPreviewSchema.parse(
       {
         summary: result.battle_report || result.battle_end_reason || '整场战斗已结束',
         proposed_world_events: buildFullBattleWorldEvents(session, result),
-        proposed_combatants: buildCombatantsFromMainState(session, nextMainState),
-        proposed_loot: {},
+        proposed_combatants: buildCombatantsFromMainState(nextMainState),
+        proposed_loot: nextLoot,
       },
       { reportInput: true },
     ),
@@ -149,7 +137,7 @@ export function createPendingPreviewFromFullBattleResult(session: BattleSession,
 }
 
 export function createPendingPreviewFromLootResult(session: BattleSession, result: BattleLootResult) {
-  const accumulatedUpdates = mergeBattleFlatUpdates(session.runtime.accumulated_updates, result.mvu_updates);
+  const accumulatedUpdates = mergeBattleRuntimeUpdates(session.runtime.accumulated_updates, result.mvu_updates);
   const nextMainState = buildRuntimeMainState(session, accumulatedUpdates);
   const nextLoot = Object.fromEntries(result.loot_result.loot_items.map(createLootRecord));
   const baseEvents = klona(session.pending_preview.proposed_world_events);
@@ -164,7 +152,7 @@ export function createPendingPreviewFromLootResult(session: BattleSession, resul
       {
         summary: session.pending_preview.summary || '战利品结算完成',
         proposed_world_events: baseEvents,
-        proposed_combatants: buildCombatantsFromMainState(session, nextMainState),
+        proposed_combatants: buildCombatantsFromMainState(nextMainState),
         proposed_loot: nextLoot,
       },
       { reportInput: true },

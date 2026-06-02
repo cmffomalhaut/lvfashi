@@ -677,6 +677,10 @@
         </article>
 
         <article class="settings-panel">
+          <div v-if="lastRuntimePrompt" class="preview-block">
+            <h3>最近一次发送提示词</h3>
+            <pre class="json-preview">{{ formatJson(lastRuntimePrompt) }}</pre>
+          </div>
           <div class="preview-block">
             <h3>最近一次运行载荷</h3>
             <pre class="json-preview">{{ formatJson(lastRuntimePayload) }}</pre>
@@ -735,10 +739,14 @@
                 <span>{{ battleSession.激活 ? `${battlePhaseLabel} · ${turnModeLabel}` : '可直接发送测试请求；需要写入战斗态时再重建。' }}</span>
                 <span>
                   {{ headerSourceText }} ·
-                  <template v-if="!isFreeformRuntime">明骰 {{ diceRollLabel }}，剩余重投 {{ remainingRerolls }} 次</template>
+                  <template v-if="!isFreeformRuntime">明骰 {{ diceRollLabel }}</template>
                   <template v-else>自由描述模式</template>
                   · {{ isResolving || isRuntimeRequestBusy ? 'AI 处理中' : '待命' }}
                 </span>
+                <div class="battle-message__actions">
+                  <button class="btn btn--ghost btn--sm" type="button" @click="refreshBattleData">刷新当前回合</button>
+                  <button class="btn btn--warn btn--sm" type="button" @click="forceRebuild">重建战斗</button>
+                </div>
               </div>
 
               <div
@@ -761,15 +769,23 @@
                 <p>{{ battleSession.pending_preview.summary }}</p>
                 <div v-if="battleSession.phase === 'preview'" class="battle-message__actions">
                   <button class="btn btn--primary btn--sm" type="button" @click="applyPreview">应用结果，进入下一回合</button>
+                  <button class="btn btn--ghost btn--sm" type="button" @click="resolveAgain">重新结算</button>
                   <button class="btn btn--ghost btn--sm" type="button" @click="finishBattle">结束战斗</button>
+                  <button class="btn btn--warn btn--sm" type="button" @click="forceRebuild">重建战斗</button>
                 </div>
               </div>
 
               <div v-if="latestFullBattleResult" class="battle-message battle-message--preview">
                 <span class="message-label">整场摘要</span>
-                <ul class="compact-list">
+                <p v-if="latestFullBattleReport">{{ latestFullBattleReport }}</p>
+                <ul v-if="latestFullBattleResult.rounds.length" class="compact-list">
                   <li v-for="round in latestFullBattleResult.rounds" :key="round.round_index">
-                    第{{ round.round_index }}回合：{{ round.summary || round.narration || '无摘要' }}
+                    第{{ round.round_index }}回合：{{ formatFullBattleRoundDigest(round) }}
+                  </li>
+                </ul>
+                <ul v-if="latestFullBattleResult.loot_result.loot_items.length" class="compact-list">
+                  <li v-for="item in latestFullBattleResult.loot_result.loot_items" :key="item.name || item.description">
+                    战利品：{{ item.name || '未命名' }} x{{ item.quantity || 1 }}{{ item.description ? `，${item.description}` : '' }}
                   </li>
                 </ul>
               </div>
@@ -782,6 +798,10 @@
                   <summary>查看 AI 原始返回</summary>
                   <pre class="json-preview">{{ lastRuntimeRawText }}</pre>
                 </details>
+                <div class="battle-message__actions">
+                  <button class="btn btn--ghost btn--sm" type="button" @click="resolveAgain">重新结算</button>
+                  <button class="btn btn--warn btn--sm" type="button" @click="forceRebuild">重建战斗</button>
+                </div>
               </div>
             </div>
 
@@ -810,12 +830,11 @@
         <div class="dice-dialog">
           <div class="dice-dialog__head">
             <strong>明骰结果</strong>
-            <span>总共有 99 次反悔重投机会</span>
+            <span>已重投 {{ effectiveDiceCheck?.reroll_used ?? 0 }} 次</span>
           </div>
           <div class="dice-dialog__die" :class="diceAnimating ? 'dice-dialog__die--rolling' : ''">
             {{ diceRollLabel }}
           </div>
-          <p class="dice-dialog__meta">已重投 {{ effectiveDiceCheck?.reroll_used ?? 0 }} 次，剩余 {{ remainingRerolls }} 次。</p>
           <div class="dice-dialog__actions">
             <button class="btn" type="button" :disabled="!canRollDice" @click="reroll">{{ diceRollLabel === '--' ? '投骰' : '重投' }}</button>
             <button class="btn btn--primary" type="button" @click="acceptDiceDialog">确定</button>
@@ -884,6 +903,7 @@ const {
   lastRuntimeRequestMessage,
   lastRuntimeRequestError,
   lastRuntimePayload,
+  lastRuntimePrompt,
   lastRuntimeResult,
   lastRuntimeRawText,
   roundCheckpointDirty,
@@ -903,6 +923,7 @@ const runtimeExtraInstructions = ref('');
 const runtimeDraftError = ref('');
 const uiActionError = ref('');
 const lastDiceMessage = ref('');
+const refreshNotice = ref('');
 const lastDicePlayerCheck = ref<{ roll: number; reroll_used: number; confirmed: boolean } | null>(null);
 const diceDialogOpen = ref(false);
 const diceAnimating = ref(false);
@@ -965,9 +986,12 @@ const latestFullBattleResult = computed<BattleFullResult | null>(() =>
     ? (lastRuntimeResult.value as BattleFullResult)
     : null,
 );
+const latestFullBattleReport = computed(() => latestFullBattleResult.value?.battle_report?.trim() ?? '');
 const latestLootResult = computed<BattleLootResult | null>(() =>
-  lastRuntimeResult.value && 'loot_result' in lastRuntimeResult.value ? (lastRuntimeResult.value as BattleLootResult) : null,
+  lastRuntimeResult.value && 'mvu_updates' in lastRuntimeResult.value ? (lastRuntimeResult.value as BattleLootResult) : null,
 );
+const formatFullBattleRoundDigest = (round: BattleFullResult['rounds'][number]) =>
+  round.summary?.trim() || round.narration?.trim() || 'AI 未提供本回合摘要';
 const chatMessages = computed(() => {
   const runtimeMessages = battleSession.value.runtime.transcript
     .filter(message => message.content.trim())
@@ -994,6 +1018,15 @@ const chatMessages = computed(() => {
       role: 'system' as const,
       label: '系统',
       content: lastRuntimeRequestMessage.value,
+    });
+  }
+
+  if (refreshNotice.value && !messages.some(message => message.content === refreshNotice.value)) {
+    messages.push({
+      id: 'local-refresh-status',
+      role: 'system' as const,
+      label: '刷新',
+      content: refreshNotice.value,
     });
   }
 
@@ -1029,7 +1062,6 @@ const effectiveDiceCheck = computed(() => {
   }
   return null;
 });
-const remainingRerolls = computed(() => Math.max(0, 99 - (effectiveDiceCheck.value?.reroll_used ?? 0)));
 const diceRollLabel = computed(() => {
   const roll = effectiveDiceCheck.value?.roll ?? 0;
   return roll > 0 ? String(roll) : '--';
@@ -1043,16 +1075,18 @@ const canOpenDiceDialog = computed(
 );
 const canRollDice = computed(
   () =>
-    canOpenDiceDialog.value &&
-    (!effectiveDiceCheck.value || effectiveDiceCheck.value.reroll_used < 99),
+    !isResolving.value &&
+    !isRuntimeRequestBusy.value &&
+    (!effectiveDiceCheck.value ||
+      (!effectiveDiceCheck.value.confirmed &&
+        (effectiveDiceCheck.value.roll <= 0 || effectiveDiceCheck.value.reroll_used < 99))),
 );
 const canSendBattleCommand = computed(
   () =>
     !isResolving.value &&
     !isRuntimeRequestBusy.value &&
     battleSession.value.phase !== 'ai_resolve' &&
-    battleSession.value.phase !== 'preview' &&
-    battleSession.value.phase !== 'finished',
+    battleSession.value.phase !== 'preview',
 );
 const headerSourceText = computed(() =>
   sourceMessageId.value >= 0 ? `当前楼层 ${sourceMessageId.value}` : '当前楼层未定位',
@@ -1163,6 +1197,14 @@ watch(
 );
 
 watch(
+  () => battleSession.value.round.round_no,
+  () => {
+    lastDicePlayerCheck.value = null;
+    lastDiceMessage.value = '';
+  },
+);
+
+watch(
   () => battleSession.value.player_check.strategy_text,
   value => {
     strategyDraft.value = value;
@@ -1173,13 +1215,15 @@ watch(
 watch(
   () => battleSession.value.player_check,
   value => {
-    if (battleSession.value.激活 && value.roll > 0) {
+    if (battleSession.value.激活) {
       lastDicePlayerCheck.value = {
         roll: value.roll,
         reroll_used: value.reroll_used,
         confirmed: value.confirmed,
       };
+      return;
     }
+    lastDicePlayerCheck.value = null;
   },
   { immediate: true },
 );
@@ -1238,6 +1282,7 @@ const closeWindow = () => {
 };
 const refreshBattleData = () => {
   store.refresh();
+  refreshNotice.value = `已刷新当前战斗数据（楼层 ${sourceMessageId.value}）`;
 };
 const showDiceDialog = (animate = true) => {
   if (diceAnimationTimer) {
@@ -1254,20 +1299,25 @@ const showDiceDialog = (animate = true) => {
   }, 520);
 };
 const acceptDiceDialog = async () => {
-  if ((effectiveDiceCheck.value?.roll ?? 0) <= 0) {
-    rollLocalDice();
-  }
-  lastDiceMessage.value = `技能：1d20=${diceRollLabel.value}`;
-  diceDialogOpen.value = false;
-  if (battleSession.value.激活) {
-    await runUiAction(() =>
-      store.appendRuntimeChatMessage({
+  await runUiAction(async () => {
+    if ((effectiveDiceCheck.value?.roll ?? 0) <= 0) {
+      if (battleSession.value.激活) {
+        const result = await store.reroll();
+        syncLastDiceCheckFromResult(result);
+      } else {
+        rollLocalDice();
+      }
+    }
+    lastDiceMessage.value = `技能：1d20=${diceRollLabel.value}`;
+    diceDialogOpen.value = false;
+    if (battleSession.value.激活) {
+      await store.appendRuntimeChatMessage({
         role: 'system',
         label: '骰子',
         content: lastDiceMessage.value,
-      }),
-    );
-  }
+      });
+    }
+  });
 };
 const closeDiceDialog = () => {
   diceDialogOpen.value = false;
@@ -1314,25 +1364,43 @@ const openDiceDialog = async () => {
 };
 const reroll = async () => {
   await runUiAction(async () => {
-    rollLocalDice();
+    if (battleSession.value.激活) {
+      const result = await store.reroll();
+      syncLastDiceCheckFromResult(result);
+    } else {
+      rollLocalDice();
+    }
     showDiceDialog(true);
   });
 };
-const buildBattleCommandOptions = () => ({
-  playerCommand: strategyDraft.value,
-  diceInputs: isFreeformRuntime.value
-    ? {}
-    : {
+const buildBattleCommandOptions = () => {
+  const diceInputs =
+    isFreeformRuntime.value || battleSession.value.激活
+      ? {}
+      : {
         player_roll: effectiveDiceCheck.value?.roll || undefined,
         reroll_used: effectiveDiceCheck.value?.reroll_used ?? 0,
         dark_pool_remaining: Array.from({ length: 5 }, () => _.random(1, 20)),
         dark_pool_cursor: 0,
-      },
-  extraInstructions: '',
-});
+      };
+  return {
+    playerCommand: strategyDraft.value,
+    diceInputs,
+    extraInstructions: '',
+  };
+};
 const confirm = async () => {
   await runUiAction(async () => {
     const playerCommand = strategyDraft.value.trim();
+
+    if (battleSession.value.phase === 'finished') {
+      await store.forceRebuild();
+      strategyDraft.value = '';
+      lastDiceMessage.value = '';
+      lastDicePlayerCheck.value = null;
+      return;
+    }
+
     if (!battleProfileDraft.value) {
       if (!battleSession.value.激活) {
         await store.startBattle();

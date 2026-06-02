@@ -77,6 +77,7 @@ export type BattleFieldSelectionConfig = {
   selected_fields: BattleSelectedField[];
   analysis_warnings: string[];
   last_analysis_input_hash: string;
+  source_data_hash: string;
   last_analysis_at: number | null;
   manual_review_required: boolean;
 };
@@ -181,6 +182,8 @@ export type BattleRuntimePayload = {
   run_mode: BattleRunMode;
   turn_mode: BattleTurnMode;
   battle_protocol: string;
+  loot_protocol?: string;
+  settlement_mode?: BattleSettlementMode;
   selected_data: Record<string, unknown>;
   player_command: string;
   dice_inputs: Record<string, unknown>;
@@ -203,6 +206,19 @@ export type BattleRoundDigest = {
   round_index: number;
   summary: string;
   narration: string;
+};
+
+export type BattleLootItem = {
+  name: string;
+  quantity: number;
+  description: string;
+  reason: string;
+};
+
+export type BattleSpecialFinding = {
+  name: string;
+  description: string;
+  reason: string;
 };
 
 export type BattleRoundResult = {
@@ -228,20 +244,14 @@ export type BattleFullResult = {
   battle_report: string;
   battle_end_reason: string;
   settlement: BattleSettlementDecision;
+  loot_result: {
+    has_loot: boolean;
+    loot_items: BattleLootItem[];
+    special_findings: BattleSpecialFinding[];
+  };
+  loot_mvu_updates: BattleFlatUpdates;
+  loot_context: Record<string, unknown>;
   warnings: string[];
-};
-
-export type BattleLootItem = {
-  name: string;
-  quantity: number;
-  description: string;
-  reason: string;
-};
-
-export type BattleSpecialFinding = {
-  name: string;
-  description: string;
-  reason: string;
 };
 
 export type BattleLootResult = {
@@ -317,29 +327,139 @@ export function createDefaultBattleFieldSelectionConfig(): BattleFieldSelectionC
     selected_fields: [],
     analysis_warnings: [],
     last_analysis_input_hash: '',
+    source_data_hash: '',
     last_analysis_at: null,
     manual_review_required: false,
   };
 }
 
-export function createDefaultBattlePromptTemplate(title: string): BattlePromptTemplate {
+function buildDefaultFieldAnalysisSystemPrompt(): string {
+  return [
+    '你是通用战斗字段分析器。',
+    '你的任务是根据战斗协议和当前 stat_data，挑出正式战斗请求必须观察或可能回写的字段路径。',
+    '必须遵守：',
+    '1. 只关注战斗判定、资源变化、状态变化、战利品结算直接相关的字段。',
+    '2. 优先最小必要字段集，不要把无关设定、纯背景文本或 battle_session 带进去。',
+    '3. path 使用 stat_data 内部路径，不要带最外层 stat_data. 前缀。',
+    '4. 不得根据固定项目名称、固定角色名或固定字段模板补造字段。',
+    '5. 若某些关键字段名称不明确，可在 warnings 里提醒玩家人工补查。',
+    '6. 只能返回 JSON，不要输出解释性前后缀。',
+  ].join('\n');
+}
+
+function buildDefaultFieldAnalysisUserPrompt(): string {
+  return [
+    '请分析下面的战斗字段请求，返回推荐字段列表。',
+    '若你判断某条战斗协议需要观察 HP、MP、护盾、状态、背包、敌方单位等信息，请明确列出当前 stat_data 中真实存在的路径。',
+    '若不同 run_mode 对字段依赖不同，也请按当前 run_mode 保守裁定。',
+  ].join('\n');
+}
+
+function buildDefaultFieldAnalysisOutputPrompt(): string {
+  return [
+    '返回 JSON 结构：',
+    '{',
+    '  "fields": [{ "path": "角色.生命值.当前值", "label": "当前生命值", "reason": "..." }],',
+    '  "warnings": ["..."]',
+    '}',
+    '要求：fields 和 warnings 必须始终存在。',
+  ].join('\n');
+}
+
+function buildDefaultSingleRoundSystemPrompt(): string {
+  return [
+    '你是战斗单回合裁定器。',
+    '根据 selected_data、战斗协议和玩家指令，只处理当前回合。',
+    '返回结构化 JSON，不要输出解释性前后缀。',
+  ].join('\n');
+}
+
+function buildDefaultSingleRoundUserPrompt(): string {
+  return '请根据战斗输入返回当前回合的摘要、叙述、selected_data_updates、状态变化和结算信息。';
+}
+
+function buildDefaultSingleRoundOutputPrompt(): string {
+  return [
+    '返回 JSON 字段：',
+    'result_type, battle_state, round_index, summary, narration, selected_data_updates, status_changes, resource_changes, battle_end, battle_end_reason, settlement, warnings。',
+    'result_type 固定为 round。',
+  ].join('\n');
+}
+
+function buildDefaultFullBattleSystemPrompt(): string {
+  return [
+    '你是快速整场战斗推演器。',
+    '根据 selected_data、战斗协议、掉落协议和玩家总体战斗倾向，一次性推演到战斗结束并完成战利品结算。',
+    '返回结构化 JSON，不要输出解释性前后缀。',
+  ].join('\n');
+}
+
+function buildDefaultFullBattleUserPrompt(): string {
+  return '请输出整场战斗每回合摘要、最终战报、最终 selected_data_updates、结算信息和战利品结果。';
+}
+
+function buildDefaultFullBattleOutputPrompt(): string {
+  return [
+    '返回 JSON 字段：',
+    'result_type, battle_state, rounds, final_selected_data_updates, battle_report, battle_end_reason, settlement, loot_result, loot_mvu_updates, loot_context, warnings。',
+    'result_type 固定为 full_battle。',
+    '快速整场模式必须根据 runtime_payload.loot_protocol 在同一次响应中完成战利品结算；若 settlement_mode 为 no_loot，则 loot_result.has_loot=false 且 loot_items 为空。',
+  ].join('\n');
+}
+
+function buildDefaultLootSystemPrompt(): string {
+  return [
+    '你是战利品结算器。',
+    '根据当前 selected_data、掉落协议和战斗结束上下文，返回战利品与 MVU 更新草案。',
+    '返回结构化 JSON，不要输出解释性前后缀。',
+  ].join('\n');
+}
+
+function buildDefaultLootUserPrompt(): string {
+  return '请根据结算模式和掉落协议，返回战利品结果、附加发现和 mvu_updates。';
+}
+
+function buildDefaultLootOutputPrompt(): string {
+  return ['返回 JSON 字段：', 'loot_result, mvu_updates, loot_context, warnings。'].join('\n');
+}
+
+export function createDefaultBattlePromptTemplate(
+  title: string,
+  defaults: Partial<Pick<BattlePromptTemplate, 'system_prompt' | 'user_prompt' | 'output_contract_prompt'>> = {},
+): BattlePromptTemplate {
   return {
     enabled: true,
     version: 1,
     title,
-    system_prompt: '',
-    user_prompt: '',
-    output_contract_prompt: '',
+    system_prompt: defaults.system_prompt ?? '',
+    user_prompt: defaults.user_prompt ?? '',
+    output_contract_prompt: defaults.output_contract_prompt ?? '',
     notes: '',
   };
 }
 
 export function createDefaultBattlePromptConfig(): BattlePromptConfig {
   return {
-    field_analysis: createDefaultBattlePromptTemplate('字段分析'),
-    single_round: createDefaultBattlePromptTemplate('单回合战斗'),
-    full_battle: createDefaultBattlePromptTemplate('快速整场战斗'),
-    loot_resolution: createDefaultBattlePromptTemplate('战利品结算'),
+    field_analysis: createDefaultBattlePromptTemplate('字段分析', {
+      system_prompt: buildDefaultFieldAnalysisSystemPrompt(),
+      user_prompt: buildDefaultFieldAnalysisUserPrompt(),
+      output_contract_prompt: buildDefaultFieldAnalysisOutputPrompt(),
+    }),
+    single_round: createDefaultBattlePromptTemplate('单回合战斗', {
+      system_prompt: buildDefaultSingleRoundSystemPrompt(),
+      user_prompt: buildDefaultSingleRoundUserPrompt(),
+      output_contract_prompt: buildDefaultSingleRoundOutputPrompt(),
+    }),
+    full_battle: createDefaultBattlePromptTemplate('快速整场战斗', {
+      system_prompt: buildDefaultFullBattleSystemPrompt(),
+      user_prompt: buildDefaultFullBattleUserPrompt(),
+      output_contract_prompt: buildDefaultFullBattleOutputPrompt(),
+    }),
+    loot_resolution: createDefaultBattlePromptTemplate('战利品结算', {
+      system_prompt: buildDefaultLootSystemPrompt(),
+      user_prompt: buildDefaultLootUserPrompt(),
+      output_contract_prompt: buildDefaultLootOutputPrompt(),
+    }),
   };
 }
 
