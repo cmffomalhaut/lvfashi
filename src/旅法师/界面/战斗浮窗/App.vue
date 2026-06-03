@@ -42,24 +42,10 @@
       </section>
 
       <div class="settings-nav-groups" aria-label="设置分组">
-        <nav class="section-switch" aria-label="核心配置">
-          <span class="settings-nav-label">核心配置</span>
+        <nav class="section-switch" aria-label="设置分组">
+          <span class="settings-nav-label">按使用频率分组</span>
           <button
-            v-for="item in primarySettingsSections"
-            :key="item.key"
-            class="section-pill"
-            :class="activeSettingsSection === item.key ? 'section-pill--active' : ''"
-            type="button"
-            :aria-current="activeSettingsSection === item.key ? 'page' : undefined"
-            @click="activeSettingsSection = item.key"
-          >
-            {{ item.label }}
-          </button>
-        </nav>
-        <nav class="section-switch section-switch--secondary" aria-label="上下文与调试">
-          <span class="settings-nav-label">上下文与调试</span>
-          <button
-            v-for="item in secondarySettingsSections"
+            v-for="item in settingsSections"
             :key="item.key"
             class="section-pill"
             :class="activeSettingsSection === item.key ? 'section-pill--active' : ''"
@@ -72,11 +58,11 @@
         </nav>
       </div>
 
-    <section v-show="activeSettingsSection === 'api'" class="card settings-card settings-card--api">
+    <section v-show="activeSettingsSection === 'run'" class="card settings-card settings-card--api">
       <div class="section-head section-head--phone">
         <div>
-          <h2>API 配置</h2>
-          <p class="hint">像聊天软件里的设置页一样管理接口。改完后手动保存，长期写入 `battle_frontend_settings`。</p>
+          <h2>运行</h2>
+          <p class="hint">高频入口集中在这里：接口、战斗配置、玩家指令和开始战斗。</p>
         </div>
         <div class="button-grid section-actions section-actions--stack">
           <button class="btn btn--ghost" :disabled="isApiBusy" @click="createNewApiProfile">新建接口</button>
@@ -87,6 +73,63 @@
             删除当前接口
           </button>
         </div>
+      </div>
+
+      <div class="settings-run-dashboard">
+        <article class="settings-panel settings-panel--phone settings-panel--focus">
+          <div class="mobile-panel__header">
+            <strong>当前接口</strong>
+            <span>{{ activeApiProfile ? formatApiProfileOptionLabel(activeApiProfile) : '未选择接口' }}</span>
+          </div>
+          <label class="form-field">
+            <span>切换接口</span>
+            <select class="form-control" :value="activeApiProfile?.id ?? ''" :disabled="isApiBusy" @change="changeActiveApiProfile">
+              <option v-for="profile in apiProfiles" :key="profile.id" :value="profile.id">
+                {{ formatApiProfileOptionLabel(profile) }}
+              </option>
+            </select>
+          </label>
+          <div class="button-grid settings-footer-actions">
+            <button class="btn btn--primary" :disabled="isApiBusy" @click="testCurrentApiProfile">测试连接</button>
+            <button class="btn" :disabled="isApiBusy" @click="discoverModels">拉取模型列表</button>
+          </div>
+        </article>
+
+        <article class="settings-panel settings-panel--phone settings-panel--focus">
+          <div class="mobile-panel__header">
+            <strong>当前战斗配置</strong>
+            <span>{{ battleProfileDraft ? formatBattleProfileOptionLabel(battleProfileDraft) : '未选择配置' }}</span>
+          </div>
+          <label class="form-field">
+            <span>切换配置</span>
+            <select class="form-control" :value="activeBattleProfile?.id ?? ''" :disabled="isApiBusy" @change="changeActiveBattleProfile">
+              <option v-for="profile in battleProfiles" :key="profile.id" :value="profile.id">
+                {{ formatBattleProfileOptionLabel(profile) }}
+              </option>
+            </select>
+          </label>
+          <div class="button-grid settings-footer-actions">
+            <button class="btn btn--ghost" :disabled="isApiBusy" @click="createNewBattleProfile">新建战斗配置</button>
+            <button class="btn btn--primary" :disabled="!battleProfileDraft || isApiBusy" @click="saveBattleProfileDraft">保存配置</button>
+          </div>
+        </article>
+
+        <article class="settings-panel settings-panel--phone settings-panel--focus settings-panel--wide">
+          <div class="mobile-panel__header">
+            <strong>玩家指令</strong>
+            <span>{{ battleSession.激活 ? `第 ${battleSession.round.round_no} 回合` : '未开始' }}</span>
+          </div>
+          <label class="form-field">
+            <span>本回合行动</span>
+            <textarea v-model="strategyDraft" class="form-control form-control--textarea" rows="4" placeholder="输入本回合指令"></textarea>
+          </label>
+          <div class="button-grid settings-footer-actions">
+            <button class="btn" type="button" @click="refreshBattleData">刷新数据</button>
+            <button class="btn" type="button" @click="resumeOrRebuild">重新读取</button>
+            <button class="btn btn--ghost" type="button" @click="forceRebuild">重建战斗</button>
+            <button class="btn btn--primary" type="button" :disabled="!canSendBattleCommand" @click="confirm">{{ executionButtonLabel }}</button>
+          </div>
+        </article>
       </div>
 
       <div class="settings-stack">
@@ -165,26 +208,31 @@
                 </option>
               </select>
             </label>
-            <label class="form-field">
-              <span>模型列表路径</span>
-              <input v-model="apiProfileDraft.model_fetch_path" class="form-control" type="text" placeholder="/v1/models" />
-            </label>
-            <label class="form-field">
-              <span>列表解析路径</span>
-              <input v-model="apiProfileDraft.model_discovery.response_path" class="form-control" type="text" placeholder="data" />
-            </label>
-            <label class="form-field">
-              <span>超时毫秒</span>
-              <input v-model.number="apiProfileDraft.default_request_options.timeout_ms" class="form-control" type="number" min="1000" step="1000" />
-            </label>
-            <label class="form-field">
-              <span>重试次数</span>
-              <input v-model.number="apiProfileDraft.default_request_options.retry_limit" class="form-control" type="number" min="0" step="1" />
-            </label>
-            <label class="check-field">
-              <input v-model="apiProfileDraft.model_discovery.use_auth_header" type="checkbox" />
-              <span>模型列表请求带 Authorization 头</span>
-            </label>
+            <details class="settings-details form-field--wide">
+              <summary>高级接口参数</summary>
+              <div class="form-grid settings-details__body">
+                <label class="form-field">
+                  <span>模型列表路径</span>
+                  <input v-model="apiProfileDraft.model_fetch_path" class="form-control" type="text" placeholder="/v1/models" />
+                </label>
+                <label class="form-field">
+                  <span>列表解析路径</span>
+                  <input v-model="apiProfileDraft.model_discovery.response_path" class="form-control" type="text" placeholder="data" />
+                </label>
+                <label class="form-field">
+                  <span>超时毫秒</span>
+                  <input v-model.number="apiProfileDraft.default_request_options.timeout_ms" class="form-control" type="number" min="1000" step="1000" />
+                </label>
+                <label class="form-field">
+                  <span>重试次数</span>
+                  <input v-model.number="apiProfileDraft.default_request_options.retry_limit" class="form-control" type="number" min="0" step="1" />
+                </label>
+                <label class="check-field">
+                  <input v-model="apiProfileDraft.model_discovery.use_auth_header" type="checkbox" />
+                  <span>模型列表请求带 Authorization 头</span>
+                </label>
+              </div>
+            </details>
           </div>
 
           <div class="button-grid settings-footer-actions">
@@ -197,11 +245,11 @@
       </div>
     </section>
 
-    <section v-show="activeSettingsSection === 'prompt'" class="card settings-card settings-card--prompt">
+    <section v-show="activeSettingsSection === 'advanced'" class="card settings-card settings-card--prompt">
       <div class="section-head section-head--phone">
         <div>
-          <h2>提示词配置</h2>
-          <p class="hint">字段分析、单回合、整场战斗、战利品结算的默认 Prompt 都在这里，改完点保存即可长期生效。</p>
+          <h2>高级 · 完整 Prompt 编辑器</h2>
+          <p class="hint">低频的完整 Prompt、导入导出和模板开关集中在高级页。</p>
         </div>
         <div class="button-grid section-actions section-actions--stack">
           <button class="btn btn--ghost" :disabled="isApiBusy" @click="createNewBattleProfile">新建配置</button>
@@ -419,6 +467,8 @@
         </article>
 
         <article class="settings-panel">
+          <details class="settings-details" open>
+            <summary>模式状态</summary>
           <div class="state-list">
             <div class="state-list__item">
               <strong>模式提醒</strong>
@@ -438,6 +488,10 @@
             </div>
           </div>
 
+          </details>
+
+          <details class="settings-details">
+            <summary>开关选项</summary>
           <div class="rule-toggle-grid">
             <button
               class="rule-toggle"
@@ -464,11 +518,12 @@
               {{ battleProfileDraft.rules.schema_hint_enabled ? 'Schema Hint 已启用' : 'Schema Hint 已禁用' }}
             </button>
           </div>
+          </details>
         </article>
       </div>
     </section>
 
-    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'worldbook'" class="card">
+    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'advanced'" class="card">
       <div class="section-head">
         <div>
           <h2>世界书导入</h2>
@@ -602,14 +657,17 @@
             </ul>
           </div>
 
-          <div v-if="lastFieldAnalysisPayload" class="preview-block">
-            <h3>最近一次分析载荷</h3>
-            <pre class="json-preview">{{ formatJson(lastFieldAnalysisPayload) }}</pre>
-          </div>
-          <div v-if="lastFieldAnalysisRawText" class="preview-block">
-            <h3>最近一次分析原始文本</h3>
-            <pre class="json-preview">{{ lastFieldAnalysisRawText }}</pre>
-          </div>
+          <details v-if="lastFieldAnalysisPayload || lastFieldAnalysisRawText" class="settings-details">
+            <summary>分析调试载荷</summary>
+            <div v-if="lastFieldAnalysisPayload" class="preview-block">
+              <h3>最近一次分析载荷</h3>
+              <pre class="json-preview">{{ formatJson(lastFieldAnalysisPayload) }}</pre>
+            </div>
+            <div v-if="lastFieldAnalysisRawText" class="preview-block">
+              <h3>最近一次分析原始文本</h3>
+              <pre class="json-preview">{{ lastFieldAnalysisRawText }}</pre>
+            </div>
+          </details>
         </article>
 
         <article class="settings-panel">
@@ -665,6 +723,8 @@
         </article>
 
         <article class="settings-panel">
+          <details class="settings-details" open>
+            <summary>当前发送规则</summary>
           <div class="selected-field-summary">
             <strong>当前发送规则</strong>
             <span>启用项会加入对应父级或字段；排除项会从已加入的父级里删掉对应子级。</span>
@@ -716,6 +776,7 @@
             </div>
           </div>
           <p v-else class="hint">当前没有发送规则，正式运行不会发送任何字段。可以从左侧先加入一个父级。</p>
+          </details>
         </article>
       </div>
     </section>
@@ -764,15 +825,18 @@
         </article>
 
         <article class="settings-panel">
-          <div class="preview-block">
-            <h3>当前 `selected_data` 预览</h3>
-            <pre class="json-preview">{{ formatJson(selectedDataPreview) }}</pre>
-          </div>
+          <details class="settings-details">
+            <summary>当前 selected_data 预览</summary>
+            <div class="preview-block">
+              <h3>当前 `selected_data` 预览</h3>
+              <pre class="json-preview">{{ formatJson(selectedDataPreview) }}</pre>
+            </div>
+          </details>
         </article>
       </div>
     </section>
 
-    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'runtime'" class="card">
+    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'advanced'" class="card">
       <div class="section-head">
         <div>
           <h2>AI 请求层</h2>
@@ -826,22 +890,25 @@
         </article>
 
         <article class="settings-panel">
-          <div v-if="lastRuntimePrompt" class="preview-block">
-            <h3>最近一次发送提示词</h3>
-            <pre class="json-preview">{{ formatJson(lastRuntimePrompt) }}</pre>
-          </div>
-          <div class="preview-block">
-            <h3>最近一次运行载荷</h3>
-            <pre class="json-preview">{{ formatJson(lastRuntimePayload) }}</pre>
-          </div>
-          <div class="preview-block">
-            <h3>最近一次解析结果</h3>
-            <pre class="json-preview">{{ formatJson(lastRuntimeResult) }}</pre>
-          </div>
-          <div v-if="lastRuntimeRawText" class="preview-block">
-            <h3>最近一次原始文本</h3>
-            <pre class="json-preview">{{ lastRuntimeRawText }}</pre>
-          </div>
+          <details class="settings-details">
+            <summary>最近一次原始 AI 返回</summary>
+            <div v-if="lastRuntimePrompt" class="preview-block">
+              <h3>最近一次发送提示词</h3>
+              <pre class="json-preview">{{ formatJson(lastRuntimePrompt) }}</pre>
+            </div>
+            <div class="preview-block">
+              <h3>最近一次运行载荷</h3>
+              <pre class="json-preview">{{ formatJson(lastRuntimePayload) }}</pre>
+            </div>
+            <div class="preview-block">
+              <h3>最近一次解析结果</h3>
+              <pre class="json-preview">{{ formatJson(lastRuntimeResult) }}</pre>
+            </div>
+            <div v-if="lastRuntimeRawText" class="preview-block">
+              <h3>最近一次原始文本</h3>
+              <pre class="json-preview">{{ lastRuntimeRawText }}</pre>
+            </div>
+          </details>
         </article>
       </div>
     </section>
@@ -1034,7 +1101,7 @@ import { useBattleWindowStore } from './store';
 
 type BattlePromptTemplateKey = keyof BattlePromptConfig;
 type BattleUiTab = 'play' | 'settings';
-type SettingsSectionKey = 'api' | 'prompt' | 'rules' | 'worldbook' | 'fields' | 'runtime';
+type SettingsSectionKey = 'run' | 'rules' | 'fields' | 'advanced';
 type ToastType = 'success' | 'error' | 'warn';
 type ToastMessage = {
   id: number;
@@ -1101,22 +1168,19 @@ const toastMessage = ref<ToastMessage | null>(null);
 const lastDiceMessage = ref('');
 const refreshNotice = ref('');
 const lastDicePlayerCheck = ref<{ roll: number; reroll_used: number; confirmed: boolean } | null>(null);
+const diceLockedForRound = ref(false);
 const diceDialogOpen = ref(false);
 const diceAnimating = ref(false);
 const activeBattleTab = ref<BattleUiTab>('play');
-const activeSettingsSection = ref<SettingsSectionKey>('api');
+const activeSettingsSection = ref<SettingsSectionKey>('run');
 let diceAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 const settingsSections: Array<{ key: SettingsSectionKey; label: string }> = [
-  { key: 'api', label: 'API' },
-  { key: 'prompt', label: '提示词' },
-  { key: 'rules', label: '规则' },
-  { key: 'worldbook', label: '世界书' },
-  { key: 'fields', label: '字段' },
-  { key: 'runtime', label: '运行' },
+  { key: 'run', label: '运行' },
+  { key: 'rules', label: '战斗规则' },
+  { key: 'fields', label: '字段与数据' },
+  { key: 'advanced', label: '高级' },
 ];
-const primarySettingsSections = settingsSections.filter(item => ['api', 'prompt', 'rules'].includes(item.key));
-const secondarySettingsSections = settingsSections.filter(item => ['worldbook', 'fields', 'runtime'].includes(item.key));
 const apiEndpointPresets = [
   { label: 'OpenAI 兼容 /v1', baseUrl: 'https://api.openai.com/v1', modelFetchPath: '/models' },
   { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelFetchPath: '/models' },
@@ -1301,12 +1365,14 @@ const canOpenDiceDialog = computed(
     !isFreeformRuntime.value &&
     !isResolving.value &&
     !isRuntimeRequestBusy.value &&
+    !diceLockedForRound.value &&
     (!effectiveDiceCheck.value || !effectiveDiceCheck.value.confirmed),
 );
 const canRollDice = computed(
   () =>
     !isResolving.value &&
     !isRuntimeRequestBusy.value &&
+    !diceLockedForRound.value &&
     (!effectiveDiceCheck.value ||
       (!effectiveDiceCheck.value.confirmed &&
         (effectiveDiceCheck.value.roll <= 0 || effectiveDiceCheck.value.reroll_used < 99))),
@@ -1491,6 +1557,7 @@ watch(
   () => {
     lastDicePlayerCheck.value = null;
     lastDiceMessage.value = '';
+    diceLockedForRound.value = false;
   },
 );
 
@@ -1614,7 +1681,8 @@ const acceptDiceDialog = async () => {
         rollLocalDice();
       }
     }
-    lastDiceMessage.value = `技能：1d20=${diceRollLabel.value}`;
+    lastDiceMessage.value = `玩家方技能检定：1d20=${diceRollLabel.value}`;
+    diceLockedForRound.value = true;
     diceDialogOpen.value = false;
     if (battleSession.value.激活) {
       await store.appendRuntimeChatMessage({
@@ -1637,6 +1705,7 @@ const forceRebuild = async () => {
     strategyDraft.value = '';
     lastDiceMessage.value = '';
     lastDicePlayerCheck.value = null;
+    diceLockedForRound.value = false;
   });
 };
 const saveStrategy = async () => {
@@ -1704,6 +1773,12 @@ const buildBattleCommandOptions = () => {
     extraInstructions: '',
   };
 };
+const buildResolveAgainCommandOptions = () => ({
+  ...buildBattleCommandOptions(),
+  playerCommand: battleSession.value.player_check.confirmed
+    ? battleSession.value.player_check.strategy_text
+    : strategyDraft.value,
+});
 const confirm = async () => {
   await runUiAction(async () => {
     const playerCommand = strategyDraft.value.trim();
@@ -1747,17 +1822,21 @@ const confirm = async () => {
 const resolveAgain = async () => {
   await runUiAction(async () => {
     if (!battleProfileDraft.value) {
-      await store.saveStrategy(strategyDraft.value);
+      if (!battleSession.value.player_check.confirmed) {
+        await store.saveStrategy(strategyDraft.value);
+      }
       await store.resolveAgain();
       return;
     }
     if (battleSession.value.激活) {
-      await store.saveStrategy(strategyDraft.value);
+      if (!battleSession.value.player_check.confirmed) {
+        await store.saveStrategy(strategyDraft.value);
+      }
     } else {
       await store.startBattle();
       await store.saveStrategy(strategyDraft.value);
     }
-    await store.executeConfiguredBattleTurn(battleProfileDraft.value, selectedDataPreview.value, buildBattleCommandOptions());
+    await store.executeConfiguredBattleTurn(battleProfileDraft.value, selectedDataPreview.value, buildResolveAgainCommandOptions());
   });
 };
 const useMockPreview = async () => {
@@ -1778,6 +1857,7 @@ const applyPreview = async () => {
     strategyDraft.value = '';
     lastDiceMessage.value = '';
     lastDicePlayerCheck.value = null;
+    diceLockedForRound.value = false;
   });
 };
 const finishBattle = async () => {
@@ -2384,6 +2464,54 @@ const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
   background: rgba(6, 7, 11, 0.62);
 }
 
+.settings-run-dashboard {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-panel--focus {
+  border-color: rgba(34, 197, 94, 0.22);
+  background:
+    linear-gradient(180deg, rgba(34, 197, 94, 0.055), rgba(255, 255, 255, 0.018)),
+    rgba(6, 7, 11, 0.78);
+}
+
+.settings-panel--wide {
+  min-width: 0;
+}
+
+.settings-details {
+  min-width: 0;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 243, 212, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.028);
+}
+
+.settings-details:first-child {
+  margin-top: 0;
+}
+
+.settings-details summary {
+  cursor: pointer;
+  padding: 9px 10px;
+  color: rgba(255, 243, 212, 0.78);
+  font-size: 12px;
+  font-weight: 900;
+  list-style-position: inside;
+}
+
+.settings-details__body,
+.settings-details > .state-list,
+.settings-details > .rule-toggle-grid,
+.settings-details > .selected-field-summary,
+.settings-details > .selected-field-list,
+.settings-details > .preview-block,
+.settings-details > .hint {
+  margin: 0 10px 10px;
+}
+
 .battle-settings-page :deep(.btn),
 .battle-settings-page :deep(.form-control),
 .battle-settings-page :deep(.rule-toggle),
@@ -2451,6 +2579,14 @@ const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
     top: 10px;
     grid-column: 1;
     gap: 10px;
+  }
+
+  .settings-run-dashboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-panel--wide {
+    grid-column: 1 / -1;
   }
 
   .section-switch {

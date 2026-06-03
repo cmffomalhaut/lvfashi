@@ -119,6 +119,20 @@ function appendRuntimeTranscript(
   ].slice(-MAX_TRANSCRIPT_ENTRIES);
 }
 
+function removeLatestRuntimeTranscript(
+  session: BattleSession,
+  predicate: (entry: BattleSession['runtime']['transcript'][number]) => boolean,
+) {
+  const index = _.findLastIndex(session.runtime.transcript, predicate);
+  if (index < 0) {
+    return;
+  }
+  session.runtime.transcript = [
+    ...session.runtime.transcript.slice(0, index),
+    ...session.runtime.transcript.slice(index + 1),
+  ];
+}
+
 function assertActive(session: BattleSession) {
   if (!session.激活) {
     throw new Error('battle_session is not active');
@@ -142,8 +156,14 @@ function assignRuntimePreviewApplication(
   session.runtime.latest_resource_changes = klona(application.latestResult.resourceChanges ?? []);
   session.runtime.latest_warnings = klona(application.latestResult.warnings ?? []);
   session.runtime.accumulated_updates = klona(application.accumulatedUpdates);
+  const replacesCurrentRoundResult = session.runtime.history.some(
+    entry => entry.round_no === session.round.round_no && entry.type === application.latestResult.type,
+  );
+  const priorHistory = klona(session.runtime.history).filter(
+    entry => entry.round_no !== session.round.round_no || entry.type !== application.latestResult.type,
+  );
   session.runtime.history = [
-    ...klona(session.runtime.history),
+    ...priorHistory,
     {
       round_no: session.round.round_no,
       type: application.latestResult.type,
@@ -153,6 +173,9 @@ function assignRuntimePreviewApplication(
   ];
   if (application.latestResult.settlement) {
     session.runtime.settlement = klona(application.latestResult.settlement);
+  }
+  if (replacesCurrentRoundResult && application.latestResult.type === 'round') {
+    removeLatestRuntimeTranscript(session, entry => entry.role === 'ai' && (entry.label === '系统' || !entry.label));
   }
   appendRuntimeTranscript(session, {
     role: 'ai',
@@ -418,16 +441,6 @@ export function createBattleSessionController(
         assignRuntimePreviewApplication(draft, application, application.latestResult.battleEnd ? 'finished' : 'preview');
         if (draft.phase === 'finished') {
           draft.round_checkpoint = captureRoundCheckpoint(draft, 'finished');
-        } else {
-          draft.combatants = klona(draft.pending_preview.proposed_combatants);
-          draft.phase = 'player_input';
-          draft.round.round_no += 1;
-          draft.round.acting_side = draft.round.acting_side === '玩家方' ? '敌方' : '玩家方';
-          draft.player_check = createFreshPlayerCheck();
-          draft.shared_dark_pool.values = darkPool();
-          draft.shared_dark_pool.cursor = 0;
-          draft.pending_preview = PendingPreviewSchema.parse({}, { reportInput: true });
-          draft.round_checkpoint = captureRoundCheckpoint(draft, 'player_input');
         }
         draft.meta.updated_at = now();
       },

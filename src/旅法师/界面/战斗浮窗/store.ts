@@ -71,7 +71,9 @@ function resolveLatestMessageId(): number {
       if (Number.isFinite(parsed)) {
         return parsed;
       }
-    } catch {}
+    } catch {
+      // Ignore malformed DOM metadata and fall back to helper-based resolution.
+    }
   }
   return resolveRuntimeLatestMessageId() ?? -1;
 }
@@ -150,7 +152,9 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
         if (!_.isEmpty(statData)) {
           return klona(_.omit(statData, 'battle_session')) as Record<string, unknown>;
         }
-      } catch {}
+      } catch {
+        // Cross-frame variable reads can fail; keep probing other hosts.
+      }
     }
     return {};
   };
@@ -266,7 +270,9 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
         boundSourceMessageId.value = session.激活 ? session.meta.source_message_id : null;
         rawMainState.value = readRawMainState(boundSourceMessageId.value ?? resolveLatestMessageId() ?? -1);
         return;
-      } catch {}
+      } catch {
+        // If direct binding fails, fall back to a full refresh from the current message.
+      }
     }
     refresh();
   };
@@ -636,6 +642,9 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       profile.run_mode === 'freeform'
         ? {}
         : {
+            check_owner: '玩家方',
+            check_label: '玩家方技能检定',
+            player_skill_check: `玩家方技能检定：1d20=${session.player_check.roll}`,
             player_roll: session.player_check.roll,
             reroll_used: session.player_check.reroll_used,
             dark_pool_remaining: klona(session.shared_dark_pool.values.slice(session.shared_dark_pool.cursor)),
@@ -644,7 +653,12 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
             acting_side: session.round.acting_side,
           };
 
+    const lockedPlayerCheck =
+      profile.run_mode === 'freeform' || session.player_check.roll <= 0
+        ? ''
+        : `本回合玩家方技能检定已锁定：1d20=${session.player_check.roll}；必须把它作为玩家方/我方主技能明骰使用，不得忽略、改判为敌方或重新投骰。`;
     const battleHistoryContext = [
+      lockedPlayerCheck,
       session.runtime.history.length
         ? session.runtime.history.map(h => `第${h.round_no}回合${h.narration ? `叙述：${h.narration}` : h.summary ? `摘要：${h.summary}` : ''}`).join('\n')
         : '',
@@ -1000,10 +1014,14 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       const top = window.top;
       if (top) {
         for (let i = 0; i < top.frames.length; i++) {
-          try { candidates.push(top.frames[i]); } catch {}
+          try { candidates.push(top.frames[i]); } catch {
+            // Ignore inaccessible child frames.
+          }
         }
       }
-    } catch {}
+    } catch {
+      // Ignore inaccessible top-frame enumeration.
+    }
 
     for (const host of candidates) {
       if (!host || notifiedHosts.has(host)) continue;
