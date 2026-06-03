@@ -127,6 +127,7 @@
 - 重置玩家检定和共享暗骰池
 - 清空预览
 - 刷新 `round_checkpoint`
+- Runtime/profile 流程下，若 `pending_preview.proposed_combatants` 缺失或被裁空，会回退到当前 `battle_session.combatants` 再推进，避免“应用结果”阶段直接卡死
 
 6. `finishBattle`
 - 将阶段切到 `finished`
@@ -180,7 +181,9 @@ App.vue confirm/resolveAgain
    - `selected_data`：字段选择后的数据。
    - `player_command`：本回合玩家输入。
    - `dice_inputs`：`battle_session.player_check` 和 `shared_dark_pool`。
-   - `worldbook_context`：世界书上下文数组；当前仍需接入实际世界书读取。
+     - 明骰字段现在明确写成 `check_owner=玩家方`、`check_label=玩家方技能检定`、`player_skill_check=玩家方技能检定：1d20=xx`
+     - 暗骰池额外带 `dark_pool_label`、`dark_pool_instruction`，明确告知 AI 这是后续检定要按顺序消耗的骰子池
+   - `worldbook_context`：世界书上下文数组，来自 battle profile 中已导入且启用的世界书序列化结果。
    - `environment_context`：可选环境上下文。
    - `extra_instructions`：战斗规则补充、历史回合摘要、累计更新提示。
 
@@ -209,8 +212,31 @@ session.confirmPlayerCheck()
 
 调试可见性：
 
-- 设置页“AI 请求层”现在显示最近一次发送提示词快照，包括 `system`、最终 `user` message 和 `runtime_payload`。
+- 设置页“测试”面板现在显示最近一次发送提示词快照，包括 `system`、最终 `user` message 和 `runtime_payload`。
 - 只看 `runtime_payload` 会看不到 prompt 模板文本；判断单回合/快速整场差异应看 `lastRuntimePrompt.kind` 和最终 `messages`。
+
+## 最近一轮修复（2026-06）
+
+1. 重新结算当前回合：
+- `resolveAgain()` 在 Runtime/profile 流程下，会先清掉本回合旧 `pending_preview`、旧系统回答和同回合 history，再重新请求 AI。
+- 目标是让“重新结算”覆盖本回合结果，而不是叠出两条同回合回答。
+
+2. 骰子锁定：
+- 一个回合内，明骰“确定”后会锁定，直到玩家真正发送指令并推进到下一回合才解锁。
+- 这条约束只针对当前回合，避免同回合反复确认多个玩家明骰。
+
+3. 应用结果推进：
+- `applyPendingPreview()` 现在是 Runtime 回合推进的最后保险丝。
+- 如果 preview 缺 `proposed_combatants`，不会再直接报错，而是退回当前 `battle_session.combatants` 再推进。
+
+4. 接口测试状态：
+- 设置页顶部“接口”状态不再只看旧的 active profile 记录，也会读当前草稿上的最新 `last_test_result`。
+- 如果 `generateRaw` 可用，状态文案会显示为“酒馆链路可用”。
+
+5. 设置页结构：
+- 一级导航已收敛为 `运行 / 战斗规则 / 世界书 / 高级`。
+- “运行模式 / 回合处理方式 / 战利品结算”统一改为单选圆点。
+- 高级中的 Prompt 编辑器、字段取舍、运行前预览、测试面板默认都应视为低频折叠区。
 
 ## HTYQ 可借鉴点
 

@@ -94,6 +94,23 @@ function hasResolvedCombatants(session: Pick<BattleSession, 'pending_preview'>) 
   return Object.keys(allies).length + Object.keys(enemies).length > 0;
 }
 
+function ensureRuntimePreviewCombatants(
+  session: BattleSession,
+  preview: BattleSession['pending_preview'],
+): BattleSession['pending_preview'] {
+  if (hasResolvedCombatants({ pending_preview: preview })) {
+    return preview;
+  }
+
+  return PendingPreviewSchema.parse(
+    {
+      ...klona(preview),
+      proposed_combatants: klona(session.combatants),
+    },
+    { reportInput: true },
+  );
+}
+
 function appendRuntimeTranscript(
   session: BattleSession,
   entry: {
@@ -144,7 +161,10 @@ function assignRuntimePreviewApplication(
   application: BattleRuntimePreviewApplication,
   phase: BattleSession['phase'],
 ) {
-  session.pending_preview = PendingPreviewSchema.parse(application.preview, { reportInput: true });
+  session.pending_preview = ensureRuntimePreviewCombatants(
+    session,
+    PendingPreviewSchema.parse(application.preview, { reportInput: true }),
+  );
   session.phase = phase;
   session.runtime.last_result_type = application.latestResult.type;
   session.runtime.latest_summary = application.latestResult.summary || session.pending_preview.summary;
@@ -385,10 +405,9 @@ export function createBattleSessionController(
         if (draft.phase !== 'preview' || !draft.pending_preview.summary) {
           throw new Error('battle_session must have a resolved preview before apply');
         }
-        if (!hasResolvedCombatants(draft)) {
-          throw new Error('battle_session preview is missing combatants');
-        }
-        draft.combatants = klona(draft.pending_preview.proposed_combatants);
+        const normalizedPreview = ensureRuntimePreviewCombatants(draft, draft.pending_preview);
+        draft.pending_preview = normalizedPreview;
+        draft.combatants = klona(normalizedPreview.proposed_combatants);
         draft.phase = 'player_input';
         draft.round.round_no += 1;
         draft.round.acting_side = draft.round.acting_side === '玩家方' ? '敌方' : '玩家方';
@@ -397,6 +416,24 @@ export function createBattleSessionController(
         draft.shared_dark_pool.cursor = 0;
         draft.pending_preview = PendingPreviewSchema.parse({}, { reportInput: true });
         draft.round_checkpoint = captureRoundCheckpoint(draft, 'player_input');
+        draft.meta.updated_at = now();
+      },
+    });
+
+  const prepareCurrentRoundRerun = (sourceMessageId: number) =>
+    access.editBattleSession({
+      sourceMessageId,
+      mutate: draft => {
+        assertActive(draft);
+        draft.pending_preview = PendingPreviewSchema.parse({}, { reportInput: true });
+        draft.phase = draft.runtime.latest_battle_end ? 'finished' : 'ai_resolve';
+        draft.runtime.history = draft.runtime.history.filter(entry => entry.round_no !== draft.round.round_no);
+        removeLatestRuntimeTranscript(
+          draft,
+          entry =>
+            entry.role === 'ai' &&
+            (entry.label === '系统' || !entry.label || entry.label === '结算'),
+        );
         draft.meta.updated_at = now();
       },
     });
@@ -505,6 +542,7 @@ export function createBattleSessionController(
     confirmPlayerCheck,
     resolveConfirmedRound,
     mockPreview,
+    prepareCurrentRoundRerun,
     applyPendingPreview,
     finishBattle,
     appendRuntimeChatMessage,

@@ -147,10 +147,10 @@
             </select>
           </label>
 
-          <div v-if="activeApiProfile?.last_test_result" class="status-box" :class="activeApiProfile.last_test_result.ok ? 'status-box--ok' : 'status-box--error'">
-            <strong>{{ activeApiProfile.last_test_result.ok ? '最近一次测试成功' : '最近一次测试失败' }}</strong>
-            <span>{{ activeApiProfile.last_test_result.message || '无额外说明' }}</span>
-            <span>检查时间：{{ formatTimestamp(activeApiProfile.last_test_result.checked_at) }}</span>
+          <div v-if="currentApiTestResult" class="status-box" :class="currentApiTestResult.ok ? 'status-box--ok' : 'status-box--error'">
+            <strong>{{ currentApiTestResult.ok ? '最近一次测试成功' : '最近一次测试失败' }}</strong>
+            <span>{{ currentApiTestResult.message || '无额外说明' }}</span>
+            <span>检查时间：{{ formatTimestamp(currentApiTestResult.checked_at) }}</span>
           </div>
 
           <p v-if="lastApiMessage" class="hint hint--ok">{{ lastApiMessage }}</p>
@@ -246,6 +246,9 @@
     </section>
 
     <section v-show="activeSettingsSection === 'advanced'" class="card settings-card settings-card--prompt">
+      <details class="settings-details settings-details--group">
+        <summary>Prompt 编辑器与配置导入</summary>
+      <div class="settings-details__group-body">
       <div class="section-head section-head--phone">
         <div>
           <h2>高级 · 完整 Prompt 编辑器</h2>
@@ -392,6 +395,8 @@
           </div>
         </article>
       </div>
+      </div>
+      </details>
     </section>
 
     <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'rules'" class="card">
@@ -410,28 +415,77 @@
       <div class="settings-grid">
         <article class="settings-panel">
           <div class="form-grid">
-            <label class="form-field">
+            <div class="form-field">
               <span>运行模式</span>
-              <select v-model="battleProfileDraft.run_mode" class="form-control">
-                <option value="dice_driven">明骰驱动</option>
-                <option value="freeform">自由描述</option>
-              </select>
-            </label>
-            <label class="form-field">
+              <div class="radio-group">
+                <label class="radio-card">
+                  <input v-model="battleProfileDraft.run_mode" type="radio" value="dice_driven" />
+                  <span class="radio-card__dot" aria-hidden="true"></span>
+                  <span class="radio-card__body">
+                    <strong>明骰驱动</strong>
+                    <small>玩家方主检定使用锁定 1d20，适合规则明确的战斗。</small>
+                  </span>
+                </label>
+                <label class="radio-card">
+                  <input v-model="battleProfileDraft.run_mode" type="radio" value="freeform" />
+                  <span class="radio-card__dot" aria-hidden="true"></span>
+                  <span class="radio-card__body">
+                    <strong>自由描述</strong>
+                    <small>不强制玩家明骰，适合纯叙事裁定。</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div class="form-field">
               <span>回合处理方式</span>
-              <select v-model="battleProfileDraft.default_turn_mode" class="form-control">
-                <option value="round_based">单回合推进</option>
-                <option value="full_battle">整场快速推演</option>
-              </select>
-            </label>
-            <label class="form-field">
+              <div class="radio-group">
+                <label class="radio-card">
+                  <input v-model="battleProfileDraft.default_turn_mode" type="radio" value="round_based" />
+                  <span class="radio-card__dot" aria-hidden="true"></span>
+                  <span class="radio-card__body">
+                    <strong>单回合推进</strong>
+                    <small>每回合生成一次结果，由玩家确认后再进入下一回合。</small>
+                  </span>
+                </label>
+                <label class="radio-card">
+                  <input v-model="battleProfileDraft.default_turn_mode" type="radio" value="full_battle" />
+                  <span class="radio-card__dot" aria-hidden="true"></span>
+                  <span class="radio-card__body">
+                    <strong>整场快速推演</strong>
+                    <small>一次请求直接推演到战斗结束。</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div class="form-field">
               <span>战利品结算</span>
-              <select v-model="battleProfileDraft.settlement_mode" class="form-control">
-                <option value="no_loot">无掉落</option>
-                <option value="direct_loot">直接生成掉落</option>
-                <option value="checked_loot">战后单独结算</option>
-              </select>
-            </label>
+              <div class="radio-group">
+                <label class="radio-card">
+                  <input v-model="battleProfileDraft.settlement_mode" type="radio" value="no_loot" />
+                  <span class="radio-card__dot" aria-hidden="true"></span>
+                  <span class="radio-card__body">
+                    <strong>无掉落</strong>
+                    <small>战斗结束后不进入掉落结算。</small>
+                  </span>
+                </label>
+                <label class="radio-card">
+                  <input v-model="battleProfileDraft.settlement_mode" type="radio" value="direct_loot" />
+                  <span class="radio-card__dot" aria-hidden="true"></span>
+                  <span class="radio-card__body">
+                    <strong>直接生成掉落</strong>
+                    <small>战斗结束后立即产出掉落结果。</small>
+                  </span>
+                </label>
+                <label class="radio-card">
+                  <input v-model="battleProfileDraft.settlement_mode" type="radio" value="checked_loot" />
+                  <span class="radio-card__dot" aria-hidden="true"></span>
+                  <span class="radio-card__body">
+                    <strong>战后单独结算</strong>
+                    <small>保留额外检定或搜刮后再结算战利品。</small>
+                  </span>
+                </label>
+              </div>
+            </div>
             <label class="form-field">
               <span>玩家意图优先级</span>
               <input :value="battleProfileDraft.rules.player_intent_priority" class="form-control" type="text" disabled />
@@ -467,7 +521,7 @@
         </article>
 
         <article class="settings-panel">
-          <details class="settings-details" open>
+          <details class="settings-details">
             <summary>模式状态</summary>
           <div class="state-list">
             <div class="state-list__item">
@@ -523,7 +577,7 @@
       </div>
     </section>
 
-    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'advanced'" class="card">
+    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'worldbook'" class="card">
       <div class="section-head">
         <div>
           <h2>世界书导入</h2>
@@ -611,7 +665,10 @@
       </div>
     </section>
 
-    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'fields'" class="card">
+    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'advanced'" class="card">
+      <details class="settings-details settings-details--group">
+        <summary>测试</summary>
+      <div class="settings-details__group-body">
       <div class="section-head">
         <div>
           <h2>字段建议</h2>
@@ -684,9 +741,11 @@
           <p v-else class="hint">还没有字段分析结果。可以先从字段树手动加入父级或子级。</p>
         </article>
       </div>
+      </div>
+      </details>
     </section>
 
-    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'fields'" class="card">
+    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'advanced'" class="card">
       <div class="section-head">
         <div>
           <h2>字段取舍</h2>
@@ -723,7 +782,7 @@
         </article>
 
         <article class="settings-panel">
-          <details class="settings-details" open>
+          <details class="settings-details">
             <summary>当前发送规则</summary>
           <div class="selected-field-summary">
             <strong>当前发送规则</strong>
@@ -781,7 +840,7 @@
       </div>
     </section>
 
-    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'fields'" class="card">
+    <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'advanced'" class="card">
       <div class="section-head">
         <div>
           <h2>运行前预览</h2>
@@ -839,7 +898,7 @@
     <section v-if="battleProfileDraft" v-show="activeSettingsSection === 'advanced'" class="card">
       <div class="section-head">
         <div>
-          <h2>AI 请求层</h2>
+          <h2>测试</h2>
           <p class="hint">这里保留手动实验入口；下面“玩家检定 / 回合预览”区域已经开始接入正式执行链。</p>
         </div>
         <div class="button-grid">
@@ -955,7 +1014,7 @@
           <article class="battle-chat battle-chat--large">
             <div class="battle-chat__status">
               <template v-if="battleSession.激活">
-                {{ battlePhaseLabel }}<template v-if="!isFreeformRuntime"> · 明骰 {{ diceRollLabel }}</template><template v-if="isResolving || isRuntimeRequestBusy"> · AI 处理中</template>
+                第 {{ battleSession.round.round_no }} 回合 · {{ battlePhaseLabel }}<template v-if="!isFreeformRuntime"> · 明骰 {{ diceRollLabel }}</template><template v-if="isResolving || isRuntimeRequestBusy"> · AI 处理中</template>
               </template>
               <template v-else>
                 可直接发送测试请求；需要写入战斗态时再重建。
@@ -1101,7 +1160,7 @@ import { useBattleWindowStore } from './store';
 
 type BattlePromptTemplateKey = keyof BattlePromptConfig;
 type BattleUiTab = 'play' | 'settings';
-type SettingsSectionKey = 'run' | 'rules' | 'fields' | 'advanced';
+type SettingsSectionKey = 'run' | 'rules' | 'worldbook' | 'advanced';
 type ToastType = 'success' | 'error' | 'warn';
 type ToastMessage = {
   id: number;
@@ -1178,7 +1237,7 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 const settingsSections: Array<{ key: SettingsSectionKey; label: string }> = [
   { key: 'run', label: '运行' },
   { key: 'rules', label: '战斗规则' },
-  { key: 'fields', label: '字段与数据' },
+  { key: 'worldbook', label: '世界书' },
   { key: 'advanced', label: '高级' },
 ];
 const apiEndpointPresets = [
@@ -1402,15 +1461,19 @@ const settingsFieldSummary = computed(() => {
   }
   return `${fieldOverrideCount.value} 条${disabledFieldCount.value ? ` / ${disabledFieldCount.value} 停用` : ''}`;
 });
+const currentApiTestResult = computed(() => apiProfileDraft.value?.last_test_result ?? activeApiProfile.value?.last_test_result ?? null);
 const settingsApiStatusText = computed(() => {
-  const result = activeApiProfile.value?.last_test_result;
+  const result = currentApiTestResult.value;
   if (!result) {
     return '未测试';
   }
-  return result.ok ? '可用' : '失败';
+  if (result.ok) {
+    return result.message?.includes('generateRaw') ? '酒馆链路可用' : '接口可用';
+  }
+  return '测试失败';
 });
 const settingsApiStatusTone = computed(() => {
-  const result = activeApiProfile.value?.last_test_result;
+  const result = currentApiTestResult.value;
   if (!result) {
     return '';
   }
@@ -1762,11 +1825,16 @@ const buildBattleCommandOptions = () => {
     isFreeformRuntime.value || battleSession.value.激活
       ? {}
       : {
-        player_roll: effectiveDiceCheck.value?.roll || undefined,
-        reroll_used: effectiveDiceCheck.value?.reroll_used ?? 0,
-        dark_pool_remaining: Array.from({ length: 5 }, () => _.random(1, 20)),
-        dark_pool_cursor: 0,
-      };
+          check_owner: '玩家方',
+          check_label: '玩家方技能检定',
+          player_skill_check: effectiveDiceCheck.value?.roll ? `玩家方技能检定：1d20=${effectiveDiceCheck.value.roll}` : '',
+          player_roll: effectiveDiceCheck.value?.roll || undefined,
+          reroll_used: effectiveDiceCheck.value?.reroll_used ?? 0,
+          dark_pool_label: '共享暗骰池',
+          dark_pool_instruction: '以下为骰子池，请在接下来的检定中按顺序依次使用，不能跳过、重排或重投。',
+          dark_pool_remaining: Array.from({ length: 5 }, () => _.random(1, 20)),
+          dark_pool_cursor: 0,
+        };
   return {
     playerCommand: strategyDraft.value,
     diceInputs,
@@ -1829,6 +1897,9 @@ const resolveAgain = async () => {
       return;
     }
     if (battleSession.value.激活) {
+      if (battleSession.value.pending_preview.summary) {
+        await store.prepareCurrentRoundRerun();
+      }
       if (!battleSession.value.player_check.confirmed) {
         await store.saveStrategy(strategyDraft.value);
       }
@@ -2063,6 +2134,9 @@ const testCurrentApiProfile = async () => {
   }
   await runUiAction(async () => {
     const result = await store.testApiProfile(apiProfileDraft.value!);
+    if (apiProfileDraft.value) {
+      apiProfileDraft.value.last_test_result = klona(result);
+    }
     showToast(result.ok ? '连接测试成功' : '连接测试失败', result.message || '无额外说明', result.ok ? 'success' : 'error');
   });
 };
@@ -2074,6 +2148,9 @@ const saveAndTestApiProfile = async () => {
     const settings = await store.saveApiProfile(apiProfileDraft.value!, { makeActive: true });
     syncApiProfileDraftFromSettings(settings, apiProfileDraft.value!.id);
     const result = await store.testApiProfile(apiProfileDraft.value!);
+    if (apiProfileDraft.value) {
+      apiProfileDraft.value.last_test_result = klona(result);
+    }
     showToast(result.ok ? '接口已保存并测试成功' : '接口已保存但测试失败', result.message || '无额外说明', result.ok ? 'success' : 'error');
   });
 };
@@ -2510,6 +2587,90 @@ const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
 .settings-details > .preview-block,
 .settings-details > .hint {
   margin: 0 10px 10px;
+}
+
+.settings-details--group {
+  margin-top: 0;
+}
+
+.settings-details__group-body {
+  margin: 0;
+}
+
+.radio-group {
+  display: grid;
+  gap: 8px;
+}
+
+.radio-card {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 243, 212, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.radio-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.radio-card__dot {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 2px solid rgba(255, 243, 212, 0.48);
+  border-radius: 999px;
+  background: rgba(6, 7, 11, 0.9);
+}
+
+.radio-card__dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #ffd166;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 160ms ease;
+}
+
+.radio-card__body strong,
+.radio-card__body small {
+  display: block;
+}
+
+.radio-card__body strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.radio-card__body small {
+  margin-top: 3px;
+  color: rgba(255, 243, 212, 0.62);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.radio-card:has(input:checked) {
+  border-color: rgba(255, 209, 102, 0.56);
+  background: rgba(255, 209, 102, 0.08);
+}
+
+.radio-card:has(input:checked) .radio-card__dot {
+  border-color: #ffd166;
+}
+
+.radio-card:has(input:checked) .radio-card__dot::after {
+  transform: translate(-50%, -50%) scale(1);
 }
 
 .battle-settings-page :deep(.btn),

@@ -647,6 +647,8 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
             player_skill_check: `玩家方技能检定：1d20=${session.player_check.roll}`,
             player_roll: session.player_check.roll,
             reroll_used: session.player_check.reroll_used,
+            dark_pool_label: '共享暗骰池',
+            dark_pool_instruction: '以下为骰子池，请在接下来的非主技能检定中按顺序依次消耗，不能跳过、重排或改写。',
             dark_pool_remaining: klona(session.shared_dark_pool.values.slice(session.shared_dark_pool.cursor)),
             dark_pool_cursor: session.shared_dark_pool.cursor,
             round_no: session.round.round_no,
@@ -657,8 +659,13 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       profile.run_mode === 'freeform' || session.player_check.roll <= 0
         ? ''
         : `本回合玩家方技能检定已锁定：1d20=${session.player_check.roll}；必须把它作为玩家方/我方主技能明骰使用，不得忽略、改判为敌方或重新投骰。`;
+    const darkPoolInstruction =
+      profile.run_mode === 'freeform'
+        ? ''
+        : `共享暗骰池如下：${JSON.stringify(session.shared_dark_pool.values.slice(session.shared_dark_pool.cursor))}。这些数值是后续检定可用的骰子池，必须按出现顺序依次使用。`;
     const battleHistoryContext = [
       lockedPlayerCheck,
+      darkPoolInstruction,
       session.runtime.history.length
         ? session.runtime.history.map(h => `第${h.round_no}回合${h.narration ? `叙述：${h.narration}` : h.summary ? `摘要：${h.summary}` : ''}`).join('\n')
         : '',
@@ -980,6 +987,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
       isResolving.value = false;
     }
   };
+  const prepareCurrentRoundRerun = () => runAndRefresh(() => battleSessionController.prepareCurrentRoundRerun(sourceMessageId.value));
   const useMockPreview = async () => {
     lastResolveError.value = '';
     return runAndRefresh(() => battleSessionController.mockPreview(sourceMessageId.value));
@@ -1104,6 +1112,7 @@ export const useBattleWindowStore = defineStore('planeswalker.battle-window', ()
     reroll,
     confirm,
     resolveAgain,
+    prepareCurrentRoundRerun,
     useMockPreview,
     applyPreview,
     finishBattle,
