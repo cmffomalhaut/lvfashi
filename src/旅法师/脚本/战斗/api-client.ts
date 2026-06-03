@@ -194,6 +194,22 @@ export async function fetchBattleApiModels(
   profile: BattleApiProfile,
   requestImpl: BattleApiRequest = axios.request,
 ): Promise<BattleModelDiscoveryResult> {
+  const getModelListFn = getBattleModelList();
+  if (getModelListFn && profile.base_url.trim()) {
+    const models = await getModelListFn({
+      apiurl: resolveBattleApiBaseUrl(profile.base_url),
+      ...(profile.api_key.trim() ? { key: profile.api_key.trim() } : {}),
+    });
+    return {
+      models: _(models)
+        .map(model => model.trim())
+        .filter(Boolean)
+        .uniq()
+        .value(),
+      status: 200,
+    };
+  }
+
   const url = resolveBattleApiUrl(profile.base_url, profile.model_fetch_path || '/v1/models');
   const response = await requestImpl({
     method: 'GET',
@@ -230,12 +246,99 @@ function buildConnectionTestPayload(profile: BattleApiProfile) {
   return body;
 }
 
+function getBattleGenerateRaw(): typeof generateRaw | null {
+  const generateRawFn: unknown = (globalThis as Record<string, unknown>).generateRaw;
+  return typeof generateRawFn === 'function' ? (generateRawFn as typeof generateRaw) : null;
+}
+
+function getBattleModelList(): typeof getModelList | null {
+  const getModelListFn: unknown = (globalThis as Record<string, unknown>).getModelList;
+  return typeof getModelListFn === 'function' ? (getModelListFn as typeof getModelList) : null;
+}
+
+function createBattleGenerateCustomApi(
+  profile: BattleApiProfile,
+  options: BattleChatCompletionOptions = {},
+): CustomApiConfig | undefined {
+  const baseUrl = profile.base_url.trim();
+  const apiKey = profile.api_key.trim();
+  const model = profile.model.trim();
+  const customApi: CustomApiConfig = {};
+
+  if (baseUrl && apiKey) {
+    customApi.apiurl = resolveBattleApiBaseUrl(baseUrl);
+    customApi.key = apiKey;
+    customApi.source = profile.provider_type === 'custom' ? undefined : 'openai';
+  }
+
+  if (model) {
+    customApi.model = model;
+  }
+
+  const maxTokens = options.maxTokens ?? profile.default_request_options.max_tokens;
+  if (maxTokens !== null && maxTokens !== undefined) {
+    customApi.max_tokens = maxTokens;
+  }
+
+  const temperature = options.temperature ?? profile.default_request_options.temperature;
+  if (temperature !== null && temperature !== undefined) {
+    customApi.temperature = temperature;
+  }
+
+  const topP = options.topP ?? profile.default_request_options.top_p;
+  if (topP !== null && topP !== undefined) {
+    customApi.top_p = topP;
+  }
+
+  return Object.keys(customApi).length ? customApi : undefined;
+}
+
+function extractGenerateRawText(result: string | GenerateToolCallResult): string {
+  return typeof result === 'string' ? result.trim() : result.content.trim();
+}
+
+async function requestBattleGenerateRaw(
+  profile: BattleApiProfile,
+  messages: BattleChatMessage[],
+  options: BattleChatCompletionOptions = {},
+): Promise<BattleChatCompletionResult | null> {
+  const generateRawFn = getBattleGenerateRaw();
+  if (!generateRawFn) return null;
+
+  try {
+    const customApi = createBattleGenerateCustomApi(profile, options);
+    const result = await generateRawFn({
+      generation_id: `battle-runtime-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      should_silence: true,
+      should_stream: false,
+      max_chat_history: 0,
+      ordered_prompts: messages.map(m => ({ role: m.role, content: m.content })),
+      ...(customApi ? { custom_api: customApi } : {}),
+    });
+
+    const text = extractGenerateRawText(result);
+    if (!text) {
+      throw new Error('generateRaw 返回空文本');
+    }
+
+    return { status: 200, text, data: result };
+  } catch (generateError) {
+    const message = generateError instanceof Error ? generateError.message : String(generateError);
+    throw new Error(`请求失败（generateRaw）：${message}`);
+  }
+}
+
 export async function requestBattleChatCompletion(
   profile: BattleApiProfile,
   messages: BattleChatMessage[],
   options: BattleChatCompletionOptions = {},
   requestImpl: BattleApiRequest = axios.request,
 ): Promise<BattleChatCompletionResult> {
+  const tavernResult = await requestBattleGenerateRaw(profile, messages, options);
+  if (tavernResult) {
+    return tavernResult;
+  }
+
   if (!profile.base_url.trim()) {
     throw new Error('缺少 base_url');
   }
@@ -318,6 +421,32 @@ export async function testBattleApiConnection(
 ): Promise<BattleApiTestResult> {
   const failure = createDefaultBattleApiTestResult();
   failure.checked_at = Date.now();
+
+  const tavernGenerateRaw = getBattleGenerateRaw();
+  if (tavernGenerateRaw) {
+    try {
+      await requestBattleGenerateRaw(
+        profile,
+        [{ role: 'user', content: 'ping' }],
+        {
+          maxTokens: 1,
+          temperature: profile.default_request_options.temperature,
+          topP: profile.default_request_options.top_p,
+        },
+      );
+      return {
+        ok: true,
+        checked_at: Date.now(),
+        message: '连接成功（generateRaw）',
+        model_count: null,
+      };
+    } catch (error) {
+      return {
+        ...failure,
+        message: `连接失败（generateRaw）：${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
 
   if (!profile.base_url.trim()) {
     return {
