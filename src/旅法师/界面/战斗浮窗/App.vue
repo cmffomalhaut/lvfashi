@@ -15,19 +15,62 @@
         <span v-if="isSettingsBusy" class="settings-busy-indicator">处理中</span>
       </header>
 
-      <nav class="section-switch" aria-label="设置分组">
-        <button
-          v-for="item in settingsSections"
-          :key="item.key"
-          class="section-pill"
-          :class="activeSettingsSection === item.key ? 'section-pill--active' : ''"
-          type="button"
-          :aria-current="activeSettingsSection === item.key ? 'page' : undefined"
-          @click="activeSettingsSection = item.key"
-        >
-          {{ item.label }}
-        </button>
-      </nav>
+      <section class="settings-overview" aria-label="当前设置概览">
+        <div class="settings-overview__main">
+          <span>当前战斗配置</span>
+          <strong>{{ battleProfileDraft?.name || activeBattleProfile?.name || '未选择战斗配置' }}</strong>
+          <p>{{ activeApiProfile ? formatApiProfileOptionLabel(activeApiProfile) : '未选择接口' }}</p>
+        </div>
+        <div class="settings-overview__stats">
+          <div class="settings-stat">
+            <span>运行</span>
+            <strong>{{ settingsRunModeLabel }}</strong>
+          </div>
+          <div class="settings-stat">
+            <span>字段</span>
+            <strong>{{ settingsFieldSummary }}</strong>
+          </div>
+          <div class="settings-stat" :class="settingsApiStatusTone">
+            <span>接口</span>
+            <strong>{{ settingsApiStatusText }}</strong>
+          </div>
+          <div class="settings-stat">
+            <span>会话</span>
+            <strong>{{ battleSession.激活 ? battlePhaseLabel : '未开始' }}</strong>
+          </div>
+        </div>
+      </section>
+
+      <div class="settings-nav-groups" aria-label="设置分组">
+        <nav class="section-switch" aria-label="核心配置">
+          <span class="settings-nav-label">核心配置</span>
+          <button
+            v-for="item in primarySettingsSections"
+            :key="item.key"
+            class="section-pill"
+            :class="activeSettingsSection === item.key ? 'section-pill--active' : ''"
+            type="button"
+            :aria-current="activeSettingsSection === item.key ? 'page' : undefined"
+            @click="activeSettingsSection = item.key"
+          >
+            {{ item.label }}
+          </button>
+        </nav>
+        <nav class="section-switch section-switch--secondary" aria-label="上下文与调试">
+          <span class="settings-nav-label">上下文与调试</span>
+          <button
+            v-for="item in secondarySettingsSections"
+            :key="item.key"
+            class="section-pill"
+            :class="activeSettingsSection === item.key ? 'section-pill--active' : ''"
+            type="button"
+            :aria-current="activeSettingsSection === item.key ? 'page' : undefined"
+            @click="activeSettingsSection = item.key"
+          >
+            {{ item.label }}
+          </button>
+        </nav>
+      </div>
 
     <section v-show="activeSettingsSection === 'api'" class="card settings-card settings-card--api">
       <div class="section-head section-head--phone">
@@ -1072,6 +1115,8 @@ const settingsSections: Array<{ key: SettingsSectionKey; label: string }> = [
   { key: 'fields', label: '字段' },
   { key: 'runtime', label: '运行' },
 ];
+const primarySettingsSections = settingsSections.filter(item => ['api', 'prompt', 'rules'].includes(item.key));
+const secondarySettingsSections = settingsSections.filter(item => ['worldbook', 'fields', 'runtime'].includes(item.key));
 const apiEndpointPresets = [
   { label: 'OpenAI 兼容 /v1', baseUrl: 'https://api.openai.com/v1', modelFetchPath: '/models' },
   { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelFetchPath: '/models' },
@@ -1277,6 +1322,34 @@ const headerSourceText = computed(() =>
   sourceMessageId.value >= 0 ? `当前楼层 ${sourceMessageId.value}` : '当前楼层未定位',
 );
 const activeSectionLabel = computed(() => settingsSections.find(item => item.key === activeSettingsSection.value)?.label ?? '设置');
+const settingsRunModeLabel = computed(() => {
+  if (!battleProfileDraft.value) {
+    return '未配置';
+  }
+  const runMode = battleProfileDraft.value.run_mode === 'freeform' ? '自由描述' : '明骰驱动';
+  const turnMode = battleProfileDraft.value.default_turn_mode === 'full_battle' ? '整场' : '单回合';
+  return `${runMode} / ${turnMode}`;
+});
+const settingsFieldSummary = computed(() => {
+  if (!battleProfileDraft.value) {
+    return '未配置';
+  }
+  return `${fieldOverrideCount.value} 条${disabledFieldCount.value ? ` / ${disabledFieldCount.value} 停用` : ''}`;
+});
+const settingsApiStatusText = computed(() => {
+  const result = activeApiProfile.value?.last_test_result;
+  if (!result) {
+    return '未测试';
+  }
+  return result.ok ? '可用' : '失败';
+});
+const settingsApiStatusTone = computed(() => {
+  const result = activeApiProfile.value?.last_test_result;
+  if (!result) {
+    return '';
+  }
+  return result.ok ? 'settings-stat--ok' : 'settings-stat--error';
+});
 const battlePhaseLabel = computed(() => {
   switch (battleSession.value.phase) {
     case 'idle':
@@ -1440,7 +1513,6 @@ watch(
       };
       return;
     }
-    lastDicePlayerCheck.value = null;
   },
   { immediate: true },
 );
@@ -1533,6 +1605,7 @@ const showDiceDialog = (animate = true) => {
 };
 const acceptDiceDialog = async () => {
   await runUiAction(async () => {
+    await ensureBattleSessionForProfile();
     if ((effectiveDiceCheck.value?.roll ?? 0) <= 0) {
       if (battleSession.value.激活) {
         const result = await store.reroll();
@@ -1590,6 +1663,11 @@ const rollLocalDice = () => {
     confirmed: false,
   };
 };
+const ensureBattleSessionForProfile = async () => {
+  if (battleProfileDraft.value && !battleSession.value.激活) {
+    await store.startBattle();
+  }
+};
 const openDiceDialog = async () => {
   await runUiAction(async () => {
     if (battleSession.value.激活) {
@@ -1600,6 +1678,7 @@ const openDiceDialog = async () => {
 };
 const reroll = async () => {
   await runUiAction(async () => {
+    await ensureBattleSessionForProfile();
     if (battleSession.value.激活) {
       const result = await store.reroll();
       syncLastDiceCheckFromResult(result);
@@ -1654,6 +1733,12 @@ const confirm = async () => {
         await store.appendRuntimeChatMessage({ role: 'player', label: '你', content: playerCommand });
       }
       await store.saveStrategy(strategyDraft.value);
+    } else {
+      await store.startBattle();
+      if (playerCommand) {
+        await store.appendRuntimeChatMessage({ role: 'player', label: '你', content: playerCommand });
+      }
+      await store.saveStrategy(strategyDraft.value);
     }
     await store.executeConfiguredBattleTurn(battleProfileDraft.value, selectedDataPreview.value, buildBattleCommandOptions());
     strategyDraft.value = '';
@@ -1667,6 +1752,9 @@ const resolveAgain = async () => {
       return;
     }
     if (battleSession.value.激活) {
+      await store.saveStrategy(strategyDraft.value);
+    } else {
+      await store.startBattle();
       await store.saveStrategy(strategyDraft.value);
     }
     await store.executeConfiguredBattleTurn(battleProfileDraft.value, selectedDataPreview.value, buildBattleCommandOptions());
@@ -2206,6 +2294,96 @@ const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
   font-weight: 900;
 }
 
+.settings-overview {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255, 243, 212, 0.18);
+  border-radius: 12px;
+  background: rgba(6, 7, 11, 0.72);
+}
+
+.settings-overview__main {
+  min-width: 0;
+}
+
+.settings-overview__main span,
+.settings-stat span,
+.settings-nav-label {
+  display: block;
+  color: rgba(255, 243, 212, 0.58);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.settings-overview__main strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: #fff3d4;
+  font-size: 18px;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-overview__main p {
+  overflow: hidden;
+  margin: 6px 0 0;
+  color: rgba(255, 243, 212, 0.72);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-overview__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-stat {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(255, 243, 212, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.settings-stat strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: #f8fafc;
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-stat--ok strong {
+  color: #86efac;
+}
+
+.settings-stat--error strong {
+  color: #fca5a5;
+}
+
+.settings-nav-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-nav-label {
+  margin-bottom: 2px;
+  padding: 0 2px;
+  letter-spacing: 0;
+}
+
+.section-switch--secondary {
+  background: rgba(6, 7, 11, 0.62);
+}
+
 .battle-settings-page :deep(.btn),
 .battle-settings-page :deep(.form-control),
 .battle-settings-page :deep(.rule-toggle),
@@ -2258,9 +2436,24 @@ const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
     grid-column: 1 / -1;
   }
 
-  .section-switch {
+  .settings-overview {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(220px, 1.1fr) minmax(0, 1.9fr);
+    align-items: stretch;
+  }
+
+  .settings-overview__stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .settings-nav-groups {
     position: sticky;
     top: 10px;
+    grid-column: 1;
+    gap: 10px;
+  }
+
+  .section-switch {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
