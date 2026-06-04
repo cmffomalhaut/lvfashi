@@ -73,11 +73,42 @@ function buildRecentEvents(session: BattleSession, narrative: string) {
   return events;
 }
 
+/**
+ * 根据 outputMode 将 history 拼接为一条 assistant 消息文本
+ * - summary_only: 每回合 summary 带编号合并
+ * - full_log: 所有回合 narration 合并
+ */
+function buildOutputMessage(
+  history: BattleSession['runtime']['history'],
+  outputMode: BattleSession['output_mode'],
+): string {
+  if (!history || history.length === 0) return '';
+
+  if (outputMode === 'full_log') {
+    return history
+      .map(entry => (entry.narration || '').trim())
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  return history
+    .map((entry, i) => {
+      const summary = (entry.summary || '').trim();
+      return summary ? `第${i + 1}回合：${summary}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
 export async function commitBattleOutcome(
   access: StateAccessApi = stateAccess,
   { sourceMessageId, summary = '', fullLog = '', outputMode }: BattleCommitOptions,
 ): Promise<StateAccessTransactionResult> {
-  return access.editCanonicalState({
+  // 在 mutate 闭包外捕获快照和模式（mutate 后 session 被清空）
+  let historySnapshot: BattleSession['runtime']['history'] = [];
+  let resolvedOutputMode: BattleSession['output_mode'] = 'summary_only';
+
+  const result = await access.editCanonicalState({
     sourceMessageId,
     mutate: draft => {
       const session = draft.battle_session;
@@ -88,7 +119,10 @@ export async function commitBattleOutcome(
         throw new Error('battle_session must be in finished phase before terminal commit');
       }
 
-      const resolvedOutputMode = outputMode ?? session.output_mode;
+      // 在清空 session 之前捕获历史快照
+      historySnapshot = klona(session.runtime.history);
+      resolvedOutputMode = outputMode ?? session.output_mode;
+
       const narrative = resolvedOutputMode === 'full_log' ? fullLog || summary : summary || fullLog;
       const { hero, team } = resolveHeroUnit(session);
       const runtimePatchedDraft = applyBattleRuntimeUpdates(draft, session.runtime.accumulated_updates);
@@ -116,4 +150,22 @@ export async function commitBattleOutcome(
     postCheck: (_before, after) => after.battle_session.激活 === false && Object.keys(after.敌方).length === 0,
     postCheckMessage: 'battle terminal commit post-check failed',
   });
+
+  // commit 成功后写入主聊天
+  if (result.ok && historySnapshot.length > 0) {
+    try {
+      const message = buildOutputMessage(historySnapshot, resolvedOutputMode);
+      if (message.trim()) {
+        await createChatMessages(
+          [{ role: 'assistant', message }],
+          { refresh: 'all' },
+        );
+      }
+    } catch (e) {
+      // 入楼失败不应影响 commit 本身
+      console.error('[Battle] Failed to output battle dialog to chat:', e);
+    }
+  }
+
+  return result;
 }

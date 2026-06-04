@@ -180,6 +180,25 @@ function parseRuntimeStructuredText(text: string): unknown {
     }
   }
 
+  const trimmed = text.trim();
+  if (trimmed) {
+    console.warn('[battle.runtime-ai] 所有 JSON 解析候选均失败，使用兜底对象（原始文本作为 narration）', errors.at(-1));
+    return {
+      result_type: 'round',
+      battle_state: 'ongoing',
+      round_index: 1,
+      summary: trimmed.length > 200 ? `${trimmed.slice(0, 200)}……` : trimmed,
+      narration: trimmed,
+      selected_data_updates: {},
+      status_changes: [],
+      resource_changes: [],
+      battle_end: false,
+      battle_end_reason: '',
+      settlement: {},
+      warnings: ['AI 返回文本未能解析为 JSON，已使用原始文本作为回合计'],
+    };
+  }
+
   throw new Error(errors.at(-1) ?? '未找到可解析的 JSON/YAML 结构');
 }
 
@@ -625,8 +644,20 @@ async function requestRuntimeJson<T>(
   );
 
   try {
+    const parsed = parseRuntimeStructuredText(completion.text);
+    const result = parser.parse(parsed, { reportInput: true });
+    // 兜底：如果 Zod 解析后所有内容字段为空，但 rawText 确实有非 JSON 内容，
+    // 说明数据在前处理或 Zod 层叠 prefault 中被吞了，用 rawText 重建 narration
+    if (isBattleRoundResultEmpty(result) && isRawTextNonEmptyNoise(completion.text)) {
+      console.warn('[battle.runtime-ai] Zod 解析结果内容为空但 rawText 有内容，使用兜底重建', completion.text.slice(0, 200));
+      return {
+        result: parser.parse(buildFallbackRoundResult(completion.text), { reportInput: true }),
+        rawText: completion.text,
+        prompt,
+      };
+    }
     return {
-      result: parser.parse(parseRuntimeStructuredText(completion.text), { reportInput: true }),
+      result,
       rawText: completion.text,
       prompt,
     };
@@ -645,8 +676,17 @@ async function requestRuntimeJson<T>(
 
     try {
       const repaired = parseRuntimeStructuredText(completion.text);
+      const result = parser.parse(repaired, { reportInput: true });
+      if (isBattleRoundResultEmpty(result) && isRawTextNonEmptyNoise(completion.text)) {
+        console.warn('[battle.runtime-ai] 重试后 Zod 解析结果仍为空，使用兜底重建', completion.text.slice(0, 200));
+        return {
+          result: parser.parse(buildFallbackRoundResult(completion.text), { reportInput: true }),
+          rawText: completion.text,
+          prompt,
+        };
+      }
       return {
-        result: parser.parse(repaired, { reportInput: true }),
+        result,
         rawText: completion.text,
         prompt,
       };
@@ -662,6 +702,49 @@ async function requestRuntimeJson<T>(
       );
     }
   }
+}
+
+/** 检查 result 是否所有内容字段都是空的（说明 Zod prefault 全走了兜底） */
+function isBattleRoundResultEmpty(result: unknown): boolean {
+  if (!result || typeof result !== 'object') {
+    return true;
+  }
+  const obj = result as Record<string, string>;
+  const summaryEmpty = !obj.summary?.trim();
+  const narrationEmpty = !obj.narration?.trim();
+  return summaryEmpty && narrationEmpty;
+}
+
+/** 检查 rawText 是否包含真正的非 JSON 内容（不是空白、不是纯空 JSON） */
+function isRawTextNonEmptyNoise(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  // 排除纯空对象/数组
+  if (/^\{\}$/.test(trimmed) || /^\[\]$/.test(trimmed)) {
+    return false;
+  }
+  return true;
+}
+
+/** 构建兜底回合结果对象 */
+function buildFallbackRoundResult(rawText: string): Record<string, unknown> {
+  const trimmed = rawText.trim();
+  return {
+    result_type: 'round',
+    battle_state: 'ongoing',
+    round_index: 1,
+    summary: trimmed.length > 200 ? `${trimmed.slice(0, 200)}……` : trimmed,
+    narration: trimmed,
+    selected_data_updates: {},
+    status_changes: [],
+    resource_changes: [],
+    battle_end: false,
+    battle_end_reason: '',
+    settlement: {},
+    warnings: ['运行结果解析后内容为空，已使用原始文本作为叙述'],
+  };
 }
 
 export async function requestBattleSingleRound(

@@ -1088,23 +1088,73 @@
               </div>
             </div>
 
-            <div class="battle-composer battle-composer--large">
-              <div class="battle-composer__row">
-                <button class="btn battle-composer__dice" :disabled="!canOpenDiceDialog" @click="openDiceDialog">骰子</button>
-                <textarea
-                  v-model="strategyDraft"
-                  class="battle-composer__input battle-composer__input--large"
-                  placeholder="输入消息..."
-                ></textarea>
-                <button
-                  class="btn btn--primary battle-composer__confirm battle-composer__confirm--large"
-                  :disabled="!canSendBattleCommand"
-                  @click="confirm"
-                >
-                  发送
-                </button>
+            <template v-if="battleSession.激活 && battleSession.phase === 'finished'">
+              <div class="battle-composer battle-composer--large">
+                <div class="battle-composer__row battle-composer__row--header">
+                  <strong>战斗结束 · 提交或放弃</strong>
+                </div>
+                <div class="battle-composer__row">
+                  <label class="form-field form-field--inline">
+                    <span>输出模式</span>
+                    <select v-model="outputMode" class="form-control form-control--sm" @change="syncOutputMode">
+                      <option value="summary_only">摘要模式</option>
+                      <option value="full_log">完整模式</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="battle-composer__row">
+                  <textarea
+                    v-model="summaryDraft"
+                    class="battle-composer__input battle-composer__input--large"
+                    placeholder="编辑摘要文本（将作为入楼消息内容）"
+                    rows="3"
+                  ></textarea>
+                </div>
+                <div v-if="outputMode === 'full_log'" class="battle-composer__row">
+                  <textarea
+                    v-model="fullLogDraft"
+                    class="battle-composer__input battle-composer__input--large"
+                    placeholder="编辑完整日志文本（将附加在摘要之后）"
+                    rows="4"
+                  ></textarea>
+                </div>
+                <div class="battle-composer__row battle-composer__row--actions">
+                  <button class="btn btn--primary battle-composer__commit" type="button" @click="commitBattle">
+                    确认入楼
+                  </button>
+                  <button
+                    v-if="canResolveLoot"
+                    class="btn battle-composer__loot"
+                    type="button"
+                    @click="resolveLoot"
+                  >
+                    结算战利品
+                  </button>
+                  <button class="btn btn--warn battle-composer__abandon" type="button" @click="abandon">
+                    放弃战斗
+                  </button>
+                </div>
               </div>
-            </div>
+            </template>
+            <template v-else>
+              <div class="battle-composer battle-composer--large">
+                <div class="battle-composer__row">
+                  <button class="btn battle-composer__dice" :disabled="!canOpenDiceDialog" @click="openDiceDialog">骰子</button>
+                  <textarea
+                    v-model="strategyDraft"
+                    class="battle-composer__input battle-composer__input--large"
+                    placeholder="输入消息..."
+                  ></textarea>
+                  <button
+                    class="btn btn--primary battle-composer__confirm battle-composer__confirm--large"
+                    :disabled="!canSendBattleCommand"
+                    @click="confirm"
+                  >
+                    发送
+                  </button>
+                </div>
+              </div>
+            </template>
           </article>
         </div>
       </main>
@@ -1673,6 +1723,20 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  () => battleSession.value.phase,
+  (phase, prevPhase) => {
+    if (phase === 'finished' && phase !== prevPhase) {
+      if (!summaryDraft.value && battleSession.value.runtime.latest_summary) {
+        summaryDraft.value = battleSession.value.runtime.latest_summary;
+      }
+      if (!fullLogDraft.value && battleSession.value.runtime.latest_battle_report) {
+        fullLogDraft.value = battleSession.value.runtime.latest_battle_report;
+      }
+    }
+  },
 );
 
 const runUiAction = async (action: () => Promise<void>) => {
@@ -2437,6 +2501,42 @@ const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
 
 .battle-toast--warn {
   border-color: rgba(255, 209, 102, 0.58);
+}
+
+.battle-composer__row--header {
+  padding: 6px 4px;
+  color: var(--p5-gold, #ffd166);
+  font-size: 13px;
+}
+
+.battle-composer__row--actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.battle-composer__commit,
+.battle-composer__abandon,
+.battle-composer__loot {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.form-field--inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-control--sm {
+  width: auto;
+  min-width: 120px;
+}
+
+.battle-composer__commit.btn--primary {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  border-color: rgba(34, 197, 94, 0.5);
 }
 
 .settings-busy-indicator {
