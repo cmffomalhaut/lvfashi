@@ -51,7 +51,11 @@ function common_path(lhs: string, rhs: string) {
 function glob_script_files() {
   const results: string[] = [];
 
+<<<<<<< HEAD
   fs.globSync(`src/**/index.{ts,tsx,js,jsx}`)
+=======
+  fs.globSync(`{示例,src}/**/index.{ts,tsx,js,jsx}`)
+>>>>>>> 55b9a5c73448dafe8d865d5c0df9801d4b33774f
     .filter(
       file => process.env.CI !== 'true' || !fs.readFileSync(path.join(import.meta.dirname, file)).includes('@no-ci'),
     )
@@ -71,8 +75,11 @@ function glob_script_files() {
       results.push(file);
     });
 
+<<<<<<< HEAD
   results.push(...fs.globSync('util/*.ts'));
 
+=======
+>>>>>>> 55b9a5c73448dafe8d865d5c0df9801d4b33774f
   return results;
 }
 
@@ -216,11 +223,19 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
       path: path.join(
         import.meta.dirname,
         'dist',
+<<<<<<< HEAD
         path.relative(import.meta.dirname, script_filepath.dir).replace(/^(?:(?!util)[^\\/])+[\\/]/, ''),
       ),
       chunkFilename: `${script_filepath.name}.[contenthash].chunk.js`,
       asyncChunks: true,
       clean: entry.script.includes('util') ? false : true,
+=======
+        path.relative(import.meta.dirname, script_filepath.dir).replace(/^[^\\/]+[\\/]/, ''),
+      ),
+      chunkFilename: `${script_filepath.name}.[contenthash].chunk.js`,
+      asyncChunks: true,
+      clean: true,
+>>>>>>> 55b9a5c73448dafe8d865d5c0df9801d4b33774f
       publicPath: '',
       library: {
         type: 'module',
@@ -454,6 +469,10 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
             { from: 'klona', imports: ['klona'] },
             { from: 'vue-final-modal', imports: ['useModal'] },
             { from: 'zod', imports: ['z'] },
+<<<<<<< HEAD
+=======
+            { from: 'type-fest', imports: [['*', 'TypeFest']], type: true },
+>>>>>>> 55b9a5c73448dafe8d865d5c0df9801d4b33774f
           ],
         }),
         unpluginVueComponents({
