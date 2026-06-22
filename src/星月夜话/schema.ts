@@ -18,14 +18,16 @@ export const Schema = z.object({
   世界状态: z.object({
     表社会安定度: z.coerce.number().transform(v => _.clamp(Math.round(v), 0, 100)),
     里社会紧张度: z.coerce.number().transform(v => _.clamp(Math.round(v), 0, 100)),
-    秘境活跃度: z.coerce.number().transform(v => _.clamp(Math.round(v), 0, 100)),
-    时间带: z.enum(['清晨', '上午', '中午', '下午', '傍晚', '夜间', '深夜']),
-    世界概述: z.string(),
-  }).prefault({
-    表社会安定度: 85,
-    里社会紧张度: 30,
-    秘境活跃度: 20,
-    时间带: '清晨',
+     秘境活跃度: z.coerce.number().transform(v => _.clamp(Math.round(v), 0, 100)),
+     诅咒浓度: z.coerce.number().transform(v => _.clamp(Math.round(v), 0, 100)),
+     时间带: z.enum(['清晨', '上午', '中午', '下午', '傍晚', '夜间', '深夜']),
+     世界概述: z.string(),
+   }).prefault({
+     表社会安定度: 85,
+     里社会紧张度: 30,
+     秘境活跃度: 20,
+     诅咒浓度: 40,
+     时间带: '清晨',
     世界概述: '星月市，一座坐落在山海之间的现代化都市。表世界是普通的日本城市，而在暗处，魔法少女、阴阳师、忍者、魔法使等超自然势力暗中活跃。平日里各方维持着脆弱的平衡，但随着秘境活动的频繁，暗流正在涌动。',
   }),
 
@@ -48,18 +50,20 @@ export const Schema = z.object({
       描述: z.string(),
       剩余回合: z.coerce.number(),
     })).prefault({}),
-    标签: z.record(z.string().describe('标签名'), z.string().describe('标签描述')).prefault({}),
-    持有物: z.record(z.string().describe('物品名'), z.object({
-      描述: z.string(),
-      数量: z.coerce.number(),
-    })).prefault({}),
-  }).prefault({
-    名称: '旅人',
-    简介: '尚未设定背景',
-    阵营: '自由中立',
-    hp: 50,
-    mp: 30,
-  }),
+     诅咒侵蚀度: z.coerce.number().transform(v => _.clamp(Math.round(v), 0, 100)),
+     标签: z.record(z.string().describe('标签名'), z.string().describe('标签描述')).prefault({}),
+     持有物: z.record(z.string().describe('物品名'), z.object({
+       描述: z.string(),
+       数量: z.coerce.number(),
+     })).prefault({}),
+   }).prefault({
+     名称: '旅人',
+     简介: '尚未设定背景',
+     阵营: '自由中立',
+     hp: 50,
+     mp: 30,
+     诅咒侵蚀度: 10,
+   }),
 
   活跃角色: z.record(z.string().describe('角色名'), z.object({
     阵营: z.string(),
@@ -79,8 +83,9 @@ export const Schema = z.object({
       描述: z.string(),
       剩余回合: z.coerce.number(),
     })).prefault({}),
-    立场: z.enum(['友善', '中立', '敌对', '未知']),
-    标签: z.record(z.string().describe('标签名'), z.string().describe('标签描述')).prefault({}),
+     立场: z.enum(['友善', '中立', '敌对', '未知']),
+     诅咒侵蚀度: z.coerce.number().transform(v => _.clamp(Math.round(v), 0, 100)),
+     标签: z.record(z.string().describe('标签名'), z.string().describe('标签描述')).prefault({}),
   })).prefault({}),
 
   势力: z.record(z.string().describe('势力名'), z.object({

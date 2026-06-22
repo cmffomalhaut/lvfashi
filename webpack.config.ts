@@ -48,6 +48,26 @@ function common_path(lhs: string, rhs: string) {
   return lhs_parts.join(path.sep);
 }
 
+function has_missing_private_import(script_file: string) {
+  const content = fs.readFileSync(path.join(import.meta.dirname, script_file), 'utf-8');
+  const import_regex = /\b(?:import|export)\b[\s\S]*?\bfrom\s*['"]([^'"]*private[^'"]*)['"]/g;
+  const missing_imports = [...content.matchAll(import_regex)]
+    .map(match => match[1])
+    .filter(request => {
+      const resolved = path.resolve(import.meta.dirname, path.dirname(script_file), request);
+      return !fs.existsSync(resolved);
+    });
+
+  if (missing_imports.length > 0) {
+    console.info(
+      `\x1b[33m[entry_isolate]\x1b[0m 跳过 ${script_file}: 缺失私有依赖 ${missing_imports.join(', ')}`,
+    );
+    return true;
+  }
+
+  return false;
+}
+
 function glob_script_files() {
   const results: string[] = [];
 
@@ -55,6 +75,7 @@ function glob_script_files() {
     .filter(
       file => process.env.CI !== 'true' || !fs.readFileSync(path.join(import.meta.dirname, file)).includes('@no-ci'),
     )
+    .filter(file => !has_missing_private_import(file))
     .forEach(file => {
       const file_dirname = path.dirname(file);
       for (const [index, result] of results.entries()) {

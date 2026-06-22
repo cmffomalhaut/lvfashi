@@ -13,6 +13,12 @@ function getRemainingDarkPool(session: BattleSession) {
   return session.shared_dark_pool.values.slice(session.shared_dark_pool.cursor);
 }
 
+/** 从 runtime.history 取最近 N 个回合记录发给 AI，让 AI 了解战局演变 */
+function getRecentRoundHistory(session: BattleSession, maxCount = 20) {
+  const history = session.runtime.history ?? [];
+  return history.slice(-maxCount).map(h => klona(h));
+}
+
 export function buildNormalPromptPayload(state: MainState) {
   return {
     世界: klona(state.世界),
@@ -28,6 +34,13 @@ export function buildNormalPromptPayload(state: MainState) {
   };
 }
 
+/**
+ * 构造发给 AI 的战斗 prompt，顺序按用户要求：
+ * 1. 战斗规则
+ * 2. 原始 MVU 数据（从 prebattle_snapshot + 当前 combatants 重构）
+ * 3. 已发生的全部（或最近）回合历史
+ * 4. 本回合战斗上下文（meta、round、暗骰池等）
+ */
 export function buildBattleRoundPrompt(session: BattleSession) {
   if (!session.激活) {
     throw new Error('battle_session is not active');
@@ -37,8 +50,25 @@ export function buildBattleRoundPrompt(session: BattleSession) {
   }
 
   const remainingDarkPool = getRemainingDarkPool(session);
+  const roundHistory = getRecentRoundHistory(session);
 
   return {
+    // 1. 战斗规则优先
+    规则摘要: BATTLE_RULE_SUMMARY,
+
+    // 2. 原始 MVU 数据 — 让 AI 自行分辨哪些发生了变化
+    世界: klona(session.prebattle_snapshot.世界),
+    主角: klona(session.prebattle_snapshot.主角),
+    队伍: klona(session.combatants.allies),
+    敌方: klona(session.combatants.enemies),
+    背包: klona(session.prebattle_snapshot.背包),
+    任务: klona(session.prebattle_snapshot.任务),
+    当前可见卡: klona(session.prebattle_snapshot.当前可见卡),
+
+    // 3. 已发生的回合历史（round_no / summary / narration）
+    历史回合: roundHistory,
+
+    // 4. 本回合战斗上下文
     meta: klona(session.meta),
     round: klona(session.round),
     phase: session.phase,
@@ -50,9 +80,7 @@ export function buildBattleRoundPrompt(session: BattleSession) {
       next_value: remainingDarkPool[0] ?? null,
       consumed: session.shared_dark_pool.cursor,
     },
-    combatants: klona(session.combatants),
     output_mode: session.output_mode,
-    规则摘要: BATTLE_RULE_SUMMARY,
   };
 }
 
@@ -75,7 +103,10 @@ export function createPendingPreviewFromPrompt(session: BattleSession) {
       proposed_world_events: {
         [`battle_round_${promptPayload.round.round_no}`]: summary,
       },
-      proposed_combatants: klona(promptPayload.combatants),
+      proposed_combatants: {
+        allies: klona(promptPayload.队伍),
+        enemies: klona(promptPayload.敌方),
+      },
       proposed_loot: {},
     },
     { reportInput: true },

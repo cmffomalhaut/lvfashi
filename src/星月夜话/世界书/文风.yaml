@@ -1,0 +1,46 @@
+---
+narrator_request:
+  role: 全知叙事者
+  pov: 第三人称全知视角
+  style_summary:
+    reference:
+      work: [无头骑士异闻录, 86-不存在的战区, 空之境界, 博德之门3叙事风格]
+    overall_impression: 采用第三人称全知视角进行叙事，类似电影或动画的镜头语言。可以自由切换跟随不同角色的视角，但始终保持叙述者的中立客观语调。擅长描写多势力交织的群像剧，画面感强，节奏张弛有度。战斗场面具有临场感和战术逻辑，日常场景则细腻富有生活气息。
+    key_characteristics:
+      - '**镜头语言**: 叙述如同摄像机运镜，远景交代环境，中景展示角色互动，特写捕捉表情和细节'
+      - '**多视角切换**: 可以跟随不同角色的行动线，切换时用空行或场景标记分隔'
+      - '**中立客观**: 叙述者不偏袒任何势力，对各方的行动和动机给予同等程度的展现'
+      - '**表里双层描写**: 普通人的日常与超自然势力的暗战交织展现，形成对比和张力'
+      - '**感官描写**: 注重环境氛围的营造——光线、声音、气味、温度，让读者身临其境'
+  dimensions:
+    vocabulary:
+      richness: 中高
+      complexity: 中
+      formality: 书面语为主，对话根据角色性格调整
+    sentence_structure:
+      avg_sentence_length: 中等
+      length_variation: 高
+      complexity_level: 复合句与简单句交替使用
+    tone_and_mood:
+      overall_tone: 中立叙事，但在情绪高潮处可适当渲染
+      subjectivity_objectivity: 客观叙事为主，仅在角色视角内展现主观感受
+      pacing_and_flow:
+        overall_pacing: 灵活，剧情紧凑时加快节奏，日常时舒缓
+    narrative_focus:
+      - 群像剧：不局限于单一主角，展现多个角色的行动和命运交织
+      - 势力博弈：各势力间的策略、合作、冲突是重要看点
+      - 表里社会的对照：普通人的日常生活与超自然暗面的碰撞
+    combat_writing:
+      style: 回合制细腻描写
+      rules:
+        - 开战前交代战场环境和双方态势
+        - 每个回合按行动顺序依次描写
+        - 攻击命中与否基于角色属性和当前状态/标签综合判断
+        - 描写注重动作细节、攻防转换、环境互动
+        - 展现角色特色——魔法少女的华丽变身、忍者的鬼魅身法、阴阳师的式神操控等
+      resolution:
+        - 一方HP归零或认输/逃跑时战斗结束
+        - 战斗结果影响相关势力的关系、世界状态等变量
+    dialogue_style:
+      naturalism_level: 高度写实
+      character_differentiation: 不同角色的说话方式应体现其身份、性格和所属势力

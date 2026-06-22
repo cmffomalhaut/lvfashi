@@ -1,0 +1,396 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1780380081137,
+  "projectRoot": "E:\\Gg\\tavern_resource-main",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "react",
+        "version": "19.2.5",
+        "category": "frontend"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.2.5",
+        "category": "frontend"
+      },
+      {
+        "name": "vue",
+        "version": "3.5.33",
+        "category": "frontend"
+      },
+      {
+        "name": "webpack",
+        "version": "5.106.2",
+        "category": "build"
+      }
+    ],
+    "packageManager": "pnpm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "cd \"E:\\Gg\\tavern_resource-main\" && pnpm build 2>&1 | grep -E \"error TS|ERROR|successfully\" | tail -10",
+    "testCommand": null,
+    "lintCommand": "pnpm lint",
+    "devCommand": null,
+    "scripts": {
+      "build:dev": "webpack --mode development",
+      "build": "webpack --mode production",
+      "watch": "webpack --mode development --watch --progress",
+      "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,scss,html,vue}\" --no-error-on-unmatched-pattern",
+      "lint": "eslint",
+      "lint:fix": "eslint --fix",
+      "dump": "node dump_schema.ts",
+      "sync": "node tavern_sync.mjs"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src"
+    ],
+    "gitBranches": {
+      "defaultBranch": "recovery/broken-checkpoint",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "@types": {
+      "path": "@types",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1780380081083,
+      "keyFiles": []
+    },
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 0,
+      "lastAccessed": 1780380081084,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 20,
+      "lastAccessed": 1780380081094,
+      "keyFiles": [
+        "便宜模型参考项目筛选任务.md",
+        "便宜模型参考项目筛选结果.md",
+        "战斗.txt",
+        "捕获.PNG",
+        "旅法师.txt"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1780380081095,
+      "keyFiles": []
+    },
+    "util": {
+      "path": "util",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1780380081095,
+      "keyFiles": [
+        "common.ts",
+        "gitlab.ts",
+        "iframe_srcdoc.html",
+        "mvu.ts",
+        "mvu_zod.ts"
+      ]
+    },
+    "初始模板": {
+      "path": "初始模板",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1780380081096,
+      "keyFiles": []
+    },
+    "示例": {
+      "path": "示例",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1780380081096,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src\\旅法师\\界面\\战斗浮窗\\App.vue",
+      "accessCount": 83,
+      "lastAccessed": 1780402390726,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\界面\\战斗浮窗\\store.ts",
+      "accessCount": 78,
+      "lastAccessed": 1780401459818,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\界面\\战斗浮窗\\global.css",
+      "accessCount": 19,
+      "lastAccessed": 1780386561996,
+      "type": "directory"
+    },
+    {
+      "path": "src\\旅法师",
+      "accessCount": 9,
+      "lastAccessed": 1780395553832,
+      "type": "directory"
+    },
+    {
+      "path": "src\\旅法师\\schema.ts",
+      "accessCount": 9,
+      "lastAccessed": 1780401316909,
+      "type": "directory"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\runtime-session.ts",
+      "accessCount": 9,
+      "lastAccessed": 1780401430281,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\session.ts",
+      "accessCount": 9,
+      "lastAccessed": 1780402362109,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\index.ts",
+      "accessCount": 8,
+      "lastAccessed": 1780397542963,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\field-selection.ts",
+      "accessCount": 7,
+      "lastAccessed": 1780401130991,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\runtime-ai.ts",
+      "accessCount": 7,
+      "lastAccessed": 1780402141626,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗",
+      "accessCount": 6,
+      "lastAccessed": 1780381259705,
+      "type": "directory"
+    },
+    {
+      "path": "src\\旅法师\\界面\\战斗浮窗\\FieldTreeNode.vue",
+      "accessCount": 6,
+      "lastAccessed": 1780382656134,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 6,
+      "lastAccessed": 1780386086397,
+      "type": "directory"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\field-analysis.ts",
+      "accessCount": 5,
+      "lastAccessed": 1780395365107,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\界面\\战斗浮窗",
+      "accessCount": 3,
+      "lastAccessed": 1780385746859,
+      "type": "directory"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\frontend-settings.ts",
+      "accessCount": 3,
+      "lastAccessed": 1780395375823,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\ai-profile.ts",
+      "accessCount": 3,
+      "lastAccessed": 1780395376151,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\battle-updates.ts",
+      "accessCount": 3,
+      "lastAccessed": 1780400748027,
+      "type": "file"
+    },
+    {
+      "path": "webpack.config.ts",
+      "accessCount": 2,
+      "lastAccessed": 1780382630948,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\界面\\战斗浮窗\\index.ts",
+      "accessCount": 2,
+      "lastAccessed": 1780395424871,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\MVU\\state-access.ts",
+      "accessCount": 2,
+      "lastAccessed": 1780396295031,
+      "type": "file"
+    },
+    {
+      "path": "docs\\通用AI战斗前端-接管入口.md",
+      "accessCount": 1,
+      "lastAccessed": 1780380128961,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\mvu变量框架.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380176309,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\mvu角色卡.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380176779,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\前端界面.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380176936,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\酒馆变量.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380177023,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\项目基本概念.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380177126,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\mcp.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380177419,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\脚本.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380177634,
+      "type": "file"
+    },
+    {
+      "path": ".cursor\\rules\\酒馆助手接口.mdc",
+      "accessCount": 1,
+      "lastAccessed": 1780380177772,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\commit.ts",
+      "accessCount": 1,
+      "lastAccessed": 1780380723172,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\README.md",
+      "accessCount": 1,
+      "lastAccessed": 1780380822659,
+      "type": "file"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 1,
+      "lastAccessed": 1780380914496,
+      "type": "file"
+    },
+    {
+      "path": "tsconfig.json",
+      "accessCount": 1,
+      "lastAccessed": 1780380924887,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\prompt.ts",
+      "accessCount": 1,
+      "lastAccessed": 1780382538256,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\resolve.ts",
+      "accessCount": 1,
+      "lastAccessed": 1780382538377,
+      "type": "file"
+    },
+    {
+      "path": ".claude\\battle-window-current.png",
+      "accessCount": 1,
+      "lastAccessed": 1780384319850,
+      "type": "file"
+    },
+    {
+      "path": ".claude\\battle-window-after-fix.png",
+      "accessCount": 1,
+      "lastAccessed": 1780385386085,
+      "type": "file"
+    },
+    {
+      "path": ".claude\\battle-white-screen.png",
+      "accessCount": 1,
+      "lastAccessed": 1780386448189,
+      "type": "file"
+    },
+    {
+      "path": "screenshot.png",
+      "accessCount": 1,
+      "lastAccessed": 1780398496800,
+      "type": "file"
+    },
+    {
+      "path": "src\\旅法师\\脚本\\战斗\\snapshot.ts",
+      "accessCount": 1,
+      "lastAccessed": 1780401130742,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
