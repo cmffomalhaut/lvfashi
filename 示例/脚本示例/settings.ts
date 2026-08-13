@@ -4,7 +4,11 @@ const Settings = z
   })
   .prefault({});
 
+<<<<<<< HEAD
 export const useSettingsStore = defineStore('脚本示例', () => {
+=======
+export const useSettingsStore = defineStore('settings', () => {
+>>>>>>> c6777179271f97bed734047fcdd7a3d0067157ec
   const settings = ref(Settings.parse(getVariables({ type: 'script', script_id: getScriptId() })));
 
   watchEffect(() => {
