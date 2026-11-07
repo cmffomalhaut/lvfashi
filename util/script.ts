@@ -44,6 +44,7 @@ export function reloadOnChatChange(): EventOnReturn {
     }
   });
 }
+<<<<<<< HEAD
 
 export function registerAsUniqueScript(id: string): {
   unregister: () => void;
@@ -84,3 +85,5 @@ export function registerAsUniqueScript(id: string): {
     listenPreferenceState: (callback: (enabled_script_id: string) => void) => eventOn(path, callback),
   };
 }
+=======
+>>>>>>> f1453c36c93c0f091171be522b45a09fe280a2bc
