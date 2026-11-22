@@ -1,10 +1,13 @@
 node_modules
+<<<<<<< HEAD
 .pnpm-store
 dist
 
 .omx/logs
 .omx/state
 .omx/ultragoal
+=======
+>>>>>>> 884ced41021768bed2bf7e03c14e0da9ce08e010
 
 .DS_Store
 Thumbs.db
